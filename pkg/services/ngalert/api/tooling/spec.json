@@ -7401,7 +7401,6 @@
       }
     },
     "gettableAlert": {
-      "description": "GettableAlert gettable alert",
       "type": "object",
       "required": [
         "labels",
@@ -7466,6 +7465,7 @@
       "$ref": "#/definitions/gettableAlerts"
     },
     "gettableSilence": {
+      "description": "GettableSilence gettable silence",
       "type": "object",
       "required": [
         "comment",
@@ -7515,7 +7515,6 @@
       "$ref": "#/definitions/gettableSilence"
     },
     "gettableSilences": {
-      "description": "GettableSilences gettable silences",
       "type": "array",
       "items": {
         "$ref": "#/definitions/gettableSilence"
@@ -7523,7 +7522,6 @@
       "$ref": "#/definitions/gettableSilences"
     },
     "integration": {
-      "description": "Integration integration",
       "type": "object",
       "required": [
         "name",
