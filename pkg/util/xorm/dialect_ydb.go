@@ -381,35 +381,23 @@ func removeOptional(s string) string {
 type ydbDialect struct {
 	core.Base
 
-	tableParams  map[string]string // TODO: maybe remove
-	nativeDriver *ydb.Driver
+	ydbDriver *ydb.Driver
+
+	tableParams map[string]string // TODO: maybe remove
 }
 
 // ydbConnectorWrapper wraps the base YDB connector to handle RowsAffected() without errors
 type ydbConnectorWrapper struct {
-	base driver.Connector
-	db   *ydb.Driver
+	driver.Connector
 }
 
 func (w *ydbConnectorWrapper) Connect(ctx context.Context) (driver.Conn, error) {
-	conn, err := w.base.Connect(ctx)
+	conn, err := w.Connector.Connect(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	cc := conn.(connTx)
-	return &ydbConnWrapper{base: cc}, nil
-}
-
-func (w *ydbConnectorWrapper) Driver() driver.Driver {
-	return w.base.Driver()
-}
-
-func (w *ydbConnectorWrapper) Close() error {
-	if w.db != nil {
-		return w.db.Close(context.Background())
-	}
-	return nil
+	return &ydbConnWrapper{connTx: conn.(connTx)}, nil
 }
 
 type connTx interface {
@@ -417,31 +405,27 @@ type connTx interface {
 	driver.ConnBeginTx
 	driver.ConnPrepareContext
 	driver.ConnPrepareContext
+
+	Version(ctx context.Context) (string, error)
+	IsColumnExists(context.Context, string, string) (bool, error)
+	GetColumns(context.Context, string) ([]string, error)
+	GetColumnType(context.Context, string, string) (string, error)
+	IsPrimaryKey(context.Context, string, string) (bool, error)
+	GetIndexes(context.Context, string) ([]string, error)
+	GetIndexColumns(context.Context, string, string) ([]string, error)
+	IsTableExists(context.Context, string) (bool, error)
+	GetTables(context.Context, string, bool, bool) ([]string, error)
 }
 
 // ydbConnWrapper wraps the base connection to handle RowsAffected() without errors
 type ydbConnWrapper struct {
-	base connTx
-}
-
-func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
-	panic("prepare")
+	connTx
 }
 
 func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	return w.base.PrepareContext(ctx, query)
-}
+	baseStmt, err := w.connTx.PrepareContext(ctx, query)
 
-func (w *ydbConnWrapper) Close() error {
-	return w.base.Close()
-}
-
-func (w *ydbConnWrapper) Begin() (driver.Tx, error) {
-	return w.base.Begin()
-}
-
-func (w *ydbConnWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	return w.base.BeginTx(ctx, opts)
+	return &ydbStmtWrapper{stmtCtx: baseStmt.(stmtCtx), query: query}, err
 }
 
 type stmtCtx interface {
@@ -452,40 +436,38 @@ type stmtCtx interface {
 
 // ydbStmtWrapper wraps the base statement to handle RowsAffected() without errors
 type ydbStmtWrapper struct {
-	base stmtCtx
-}
+	stmtCtx
 
-func (w *ydbStmtWrapper) Close() error {
-	return w.base.Close()
-}
-
-func (w *ydbStmtWrapper) NumInput() int {
-	return w.base.NumInput()
-}
-
-func (w *ydbStmtWrapper) Exec(args []driver.Value) (driver.Result, error) {
-	panic("Exec")
-}
-
-func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	result, err := w.base.ExecContext(ctx, args)
-	if err != nil {
-		return nil, err
-	}
-	return &ydbResultWrapper{base: result}, nil
+	query string
 }
 
 func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	return w.base.QueryContext(ctx, args)
+	if strings.HasSuffix(w.query, "LIMIT $3;\n") {
+		for i, arg := range args {
+			if arg.Ordinal == 3 {
+				args[i].Value = uint64(arg.Value.(int64))
+			}
+		}
+	}
+
+	return w.stmtCtx.QueryContext(ctx, args)
 }
 
-func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
-	panic("query")
+func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	result, err := w.stmtCtx.ExecContext(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ydbResultWrapper{Result: result, rowsAffected: 1, stmt: w}, nil
 }
 
 // ydbResultWrapper wraps the base result to handle RowsAffected() without errors
 type ydbResultWrapper struct {
-	base driver.Result
+	driver.Result
+
+	stmt         *ydbStmtWrapper // TODO: used only for debugging, remove later
+	rowsAffected int64
 }
 
 func (w *ydbResultWrapper) LastInsertId() (int64, error) {
@@ -493,17 +475,16 @@ func (w *ydbResultWrapper) LastInsertId() (int64, error) {
 }
 
 func (w *ydbResultWrapper) RowsAffected() (int64, error) {
-	// Always return 0 without error for YDB compatibility
-	return 0, nil
+	return w.rowsAffected, nil
 }
 
-func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSourceName string) error {
-	ydbDriver, err := ydb.Open(context.Background(), dataSourceName)
+func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
+	ydbDriver, err := ydb.Open(context.Background(), dataSource)
 	if err != nil {
-		return fmt.Errorf("failed to connect by data source name '%s': %w", dataSourceName, err)
+		return fmt.Errorf("failed to connect by data source name '%s': %w", dataSource, err)
 	}
 
-	baseConnector, err := ydb.Connector(ydbDriver,
+	connector, err := ydb.Connector(ydbDriver,
 		ydb.WithQueryService(true),
 		ydb.WithFakeTx(ydb.QueryExecuteQueryMode),
 		ydb.WithNumericArgs(),
@@ -514,15 +495,16 @@ func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSourceName
 		return err
 	}
 
-	connector := &ydbConnectorWrapper{
-		base: baseConnector,
-		db:   ydbDriver,
+	wrapper := &ydbConnectorWrapper{
+		Connector: connector,
 	}
 
-	sqldb := sql.OpenDB(connector)
+	sqldb := sql.OpenDB(wrapper)
+
+	db.ydbDriver = ydbDriver
 	d.DB = sqldb
 
-	return db.Base.Init(core.FromDB(sqldb), db, uri, drivername, dataSourceName)
+	return db.Base.Init(core.FromDB(sqldb), db, uri, drivername, dataSource)
 }
 
 func (db *ydbDialect) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
@@ -571,7 +553,7 @@ func (db *ydbDialect) IsTableExist(
 			IsTableExists(context.Context, string) (bool, error)
 		})
 		if !ok {
-			return fmt.Errorf("driver does not support query metadata")
+			return fmt.Errorf("driver hasn't method IsTableExists()")
 		}
 		exists, err = q.IsTableExists(ctx, tableName)
 		if err != nil {
@@ -759,7 +741,7 @@ func (db *ydbDialect) IsColumnExist(
 			IsColumnExists(context.Context, string, string) (bool, error)
 		})
 		if !ok {
-			return fmt.Errorf("driver does not support query metadata")
+			return fmt.Errorf("conn hasn't method IsColumnExists()")
 		}
 		exists, err = q.IsColumnExists(ctx, tableName, columnName)
 		if err != nil {
@@ -808,7 +790,7 @@ func (db *ydbDialect) GetColumns(tableName string) (
 			IsPrimaryKey(context.Context, string, string) (bool, error)
 		})
 		if !ok {
-			return fmt.Errorf("driver does not support query metadata")
+			return fmt.Errorf("driver does not support method [GetColumns]")
 		}
 
 		colNames, err = q.GetColumns(ctx, tableName)
@@ -856,7 +838,7 @@ func (db *ydbDialect) GetTables() (_ []*core.Table, err error) {
 			GetTables(context.Context, string, bool, bool) ([]string, error)
 		})
 		if !ok {
-			return fmt.Errorf("driver does not support query metadata")
+			return fmt.Errorf("driver does not support method [GetTables]")
 		}
 		tableNames, err := q.GetTables(ctx, ".", true, true)
 		if err != nil {
@@ -885,7 +867,7 @@ func (db *ydbDialect) GetIndexes(tableName string) (_ map[string]*core.Index, er
 			GetIndexColumns(context.Context, string, string) ([]string, error)
 		})
 		if !ok {
-			return fmt.Errorf("driver does not support query metadata")
+			return fmt.Errorf("driver does not support method [GetIndexes]")
 		}
 		indexNames, err := q.GetIndexes(ctx, tableName)
 		if err != nil {
