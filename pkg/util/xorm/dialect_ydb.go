@@ -429,7 +429,6 @@ func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driv
 }
 
 type stmtCtx interface {
-	driver.StmtExecContext
 	driver.StmtQueryContext
 	driver.Stmt
 }
@@ -451,31 +450,6 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 	}
 
 	return w.stmtCtx.QueryContext(ctx, args)
-}
-
-func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	result, err := w.stmtCtx.ExecContext(ctx, args)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ydbResultWrapper{Result: result, rowsAffected: 1, stmt: w}, nil
-}
-
-// ydbResultWrapper wraps the base result to handle RowsAffected() without errors
-type ydbResultWrapper struct {
-	driver.Result
-
-	stmt         *ydbStmtWrapper // TODO: used only for debugging, remove later
-	rowsAffected int64
-}
-
-func (w *ydbResultWrapper) LastInsertId() (int64, error) {
-	return 0, nil
-}
-
-func (w *ydbResultWrapper) RowsAffected() (int64, error) {
-	return w.rowsAffected, nil
 }
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
@@ -572,17 +546,6 @@ func (db *ydbDialect) TableCheckSql(tableName string) (string, []any) {
 	return "SELECT Path FROM `.sys/partition_stats` where Path LIKE '%/' || $1", []any{tableName}
 }
 
-// func (db *ydb) Features() *core.DialectFeatures {
-// 	return &DialectFeatures{
-// 		AutoincrMode: -1,
-// 	}
-// }
-
-// unsupported feature
-// func (db *ydb) IsSequenceExist(_ context.Context, _ core.Queryer, _ string) (bool, error) {
-// 	return false, nil
-// }
-
 func (db *ydbDialect) AutoIncrStr() string {
 	return ""
 }
@@ -591,23 +554,6 @@ func (db *ydbDialect) IsReserved(name string) bool {
 	_, ok := ydbReservedWords[strings.ToUpper(name)]
 	return ok
 }
-
-// func (db *ydb) SetQuotePolicy(quotePolicy QuotePolicy) {
-// 	switch quotePolicy {
-// 	case QuotePolicyNone:
-// 		q := ydbQuoter
-// 		q.IsReserved = core.AlwaysNoReserve
-// 		db.quoter = q
-// 	case QuotePolicyReserved:
-// 		q := ydbQuoter
-// 		q.IsReserved = db.IsReserved
-// 		db.quoter = q
-// 	case QuotePolicyAlways:
-// 		fallthrough
-// 	default:
-// 		db.quoter = ydbQuoter
-// 	}
-// }
 
 func (db *ydbDialect) SqlType(column *core.Column) string {
 	return toYQLDataType(column.SQLType.Name, column.IsAutoIncrement)
@@ -629,55 +575,6 @@ func (db *ydbDialect) ColumnTypeKind(t string) int {
 	}
 }
 
-// func (db *ydb) Version(ctx context.Context, queryer core.Queryer) (_ *core.Version, err error) {
-// 	var version string
-// 	err = db.WithConnRaw(queryer, ctx, func(dc interface{}) error {
-// 		q, ok := dc.(interface {
-// 			Version(ctx context.Context) (string, error)
-// 		})
-// 		if !ok {
-// 			return fmt.Errorf("driver does not support query metadata")
-// 		}
-// 		version, err = q.Version(ctx)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return nil
-// 	})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	return &core.Version{
-// 		Edition: version,
-// 	}, nil
-// }
-
-// func (db *ydb) IsTableExist(
-// 	queryer core.Queryer,
-// 	ctx context.Context,
-// 	tableName string) (_ bool, err error) {
-// 	var exists bool
-// 	err = db.WithConnRaw(queryer, ctx, func(dc interface{}) error {
-// 		q, ok := dc.(interface {
-// 			IsTableExists(context.Context, string) (bool, error)
-// 		})
-// 		if !ok {
-// 			return fmt.Errorf("driver does not support query metadata")
-// 		}
-// 		exists, err = q.IsTableExists(ctx, tableName)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		return nil
-// 	})
-
-// 	if err != nil {
-// 		return false, err
-// 	}
-// 	return exists, nil
-// }
-
 func (db *ydbDialect) Quote(name string) string {
 	return "`" + name + "`" // TODO:
 }
@@ -697,24 +594,6 @@ func (db *ydbDialect) AddColumnSQL(tableName string, col *core.Column) string {
 func (db *ydbDialect) ModifyColumnSQL(tableName string, column *core.Column) string {
 	return ""
 }
-
-// SYNC by default
-// func (db *ydb) CreateIndexSQL(tableName string, index *core.Index) string {
-// 	tableName = db.Quote(tableName)
-// 	indexName := db.Quote(index.Name)
-
-// 	colsIndex := make([]string, len(index.Cols))
-// 	for i := 0; i < len(index.Cols); i++ {
-// 		colsIndex[i] = db.Quote(index.Cols[i])
-// 	}
-
-// 	indexOn := strings.Join(colsIndex, ",")
-
-// 	var buf strings.Builder
-// 	buf.WriteString(fmt.Sprintf("ALTER TABLE %s ADD INDEX %s GLOBAL ON ( %s );", tableName, indexName, indexOn))
-
-// 	return buf.String()
-// }
 
 func (db *ydbDialect) DropIndexSql(tableName string, index *core.Index) string {
 	tableName = db.Quote(tableName)
@@ -763,20 +642,6 @@ func (db *ydbDialect) GetColumns(tableName string) (
 	err error) {
 
 	ctx := context.TODO()
-	// dbName := db.nativeDriver.Scheme().Database()
-	// tablePath := dbName + "/" + tableName
-
-	// var desc options.Description
-
-	// db.nativeDriver.Table().Do(ctx, func(ctx context.Context, s table.Session) error {
-	// 	desc, err = s.DescribeTable(ctx, tablePath)
-	// 	return err
-	// })
-
-	// colNames := make([]string, len(desc.Columns))
-	// for i, col := range desc.Columns {
-	// 	colNames[i] = col.Name
-	// }
 
 	colNames := make([]string, 0)
 	colMaps := make(map[string]*core.Column)
@@ -965,71 +830,6 @@ type ydbSeqFilter struct {
 	Start  int
 }
 
-// func ydbSeqFilterConvertQuestionMark(sql, prefix string, start int) string {
-// 	var buf strings.Builder
-// 	var beginSingleQuote bool
-// 	var isLineComment bool
-// 	var isComment bool
-// 	var isMaybeLineComment bool
-// 	var isMaybeComment bool
-// 	var isMaybeCommentEnd bool
-// 	index := start
-// 	for _, c := range sql {
-// 		if !beginSingleQuote && !isLineComment && !isComment && c == '?' {
-// 			buf.WriteString(prefix)
-// 			buf.WriteString(strconv.Itoa(index))
-// 			index++
-// 		} else {
-// 			if isMaybeLineComment {
-// 				if c == '-' {
-// 					isLineComment = true
-// 				}
-// 				isMaybeLineComment = false
-// 			} else if isMaybeComment {
-// 				if c == '*' {
-// 					isComment = true
-// 				}
-// 				isMaybeComment = false
-// 			} else if isMaybeCommentEnd {
-// 				if c == '/' {
-// 					isComment = false
-// 				}
-// 				isMaybeCommentEnd = false
-// 			} else if isLineComment {
-// 				if c == '\n' {
-// 					isLineComment = false
-// 				}
-// 			} else if isComment {
-// 				if c == '*' {
-// 					isMaybeCommentEnd = true
-// 				}
-// 			} else if !beginSingleQuote && c == '-' {
-// 				isMaybeLineComment = true
-// 			} else if !beginSingleQuote && c == '/' {
-// 				isMaybeComment = true
-// 			} else if c == '\'' {
-// 				beginSingleQuote = !beginSingleQuote
-// 			}
-// 			buf.WriteRune(c)
-// 		}
-// 	}
-// 	return buf.String()
-// }
-
-// Do implements Filter
-// func (s *ydbSeqFilter) Do(ctx context.Context, sql string) string {
-// 	return ydbSeqFilterConvertQuestionMark(sql, s.Prefix, s.Start)
-// }
-
-// https://github.com/ydb-platform/ydb-go-sdk/blob/master/SQL.md#specifying-query-parameters-
-//
-//	func (db *ydb) Filters() []core.Filter {
-//		return []core.Filter{&ydbSeqFilter{
-//			Prefix: "$",
-//			Start:  1,
-//		}}
-//	}
-//
 // TODO:
 func (db *ydbDialect) Filters() []core.Filter {
 	return []core.Filter{&core.IdFilter{}, &core.SeqFilter{Prefix: "$", Start: 1}}
@@ -1145,12 +945,6 @@ func (db *ydbDialect) IsRetryable(err error) bool {
 type ydbDriver struct {
 	core.Base
 }
-
-// func (ydbDrv *ydbDriver) Features() *DriverFeatures {
-// 	return &DriverFeatures{
-// 		SupportReturnInsertedID: false,
-// 	}
-// }
 
 // DSN format: https://github.com/ydb-platform/ydb-go-sdk/blob/a804c31be0d3c44dfd7b21ed49d863619217b11d/connection.go#L339
 func (ydbDrv *ydbDriver) Parse(driverName, dataSourceName string) (*core.Uri, error) {
