@@ -3,7 +3,6 @@ package xorm
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"net/url"
@@ -381,76 +380,21 @@ func removeOptional(s string) string {
 type ydbDialect struct {
 	core.Base
 
-	ydbDriver *ydb.Driver
-
 	tableParams map[string]string // TODO: maybe remove
 }
 
-// ydbConnectorWrapper wraps the base YDB connector to handle RowsAffected() without errors
-type ydbConnectorWrapper struct {
-	driver.Connector
-}
+// TODO:
+// func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+// 	if strings.HasSuffix(w.query, "LIMIT $3;\n") {
+// 		for i, arg := range args {
+// 			if arg.Ordinal == 3 {
+// 				args[i].Value = uint64(arg.Value.(int64))
+// 			}
+// 		}
+// 	}
 
-func (w *ydbConnectorWrapper) Connect(ctx context.Context) (driver.Conn, error) {
-	conn, err := w.Connector.Connect(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ydbConnWrapper{connTx: conn.(connTx)}, nil
-}
-
-type connTx interface {
-	driver.Conn
-	driver.ConnBeginTx
-	driver.ConnPrepareContext
-	driver.ConnPrepareContext
-
-	Version(ctx context.Context) (string, error)
-	IsColumnExists(context.Context, string, string) (bool, error)
-	GetColumns(context.Context, string) ([]string, error)
-	GetColumnType(context.Context, string, string) (string, error)
-	IsPrimaryKey(context.Context, string, string) (bool, error)
-	GetIndexes(context.Context, string) ([]string, error)
-	GetIndexColumns(context.Context, string, string) ([]string, error)
-	IsTableExists(context.Context, string) (bool, error)
-	GetTables(context.Context, string, bool, bool) ([]string, error)
-}
-
-// ydbConnWrapper wraps the base connection to handle RowsAffected() without errors
-type ydbConnWrapper struct {
-	connTx
-}
-
-func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	baseStmt, err := w.connTx.PrepareContext(ctx, query)
-
-	return &ydbStmtWrapper{stmtCtx: baseStmt.(stmtCtx), query: query}, err
-}
-
-type stmtCtx interface {
-	driver.StmtQueryContext
-	driver.Stmt
-}
-
-// ydbStmtWrapper wraps the base statement to handle RowsAffected() without errors
-type ydbStmtWrapper struct {
-	stmtCtx
-
-	query string
-}
-
-func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	if strings.HasSuffix(w.query, "LIMIT $3;\n") {
-		for i, arg := range args {
-			if arg.Ordinal == 3 {
-				args[i].Value = uint64(arg.Value.(int64))
-			}
-		}
-	}
-
-	return w.stmtCtx.QueryContext(ctx, args)
-}
+// 	return w.stmtCtx.QueryContext(ctx, args)
+// }
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
 	ydbDriver, err := ydb.Open(context.Background(), dataSource)
@@ -469,13 +413,8 @@ func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource str
 		return err
 	}
 
-	wrapper := &ydbConnectorWrapper{
-		Connector: connector,
-	}
+	sqldb := sql.OpenDB(connector)
 
-	sqldb := sql.OpenDB(wrapper)
-
-	db.ydbDriver = ydbDriver
 	d.DB = sqldb
 
 	return db.Base.Init(core.FromDB(sqldb), db, uri, drivername, dataSource)
@@ -798,7 +737,7 @@ func (db *ydbDialect) CreateTableSQL(
 	buf.WriteString(strings.Join([]string{joinColumns, primaryKey}, ", "))
 	buf.WriteString(" ) ")
 
-	if db.tableParams != nil && len(db.tableParams) > 0 {
+	if len(db.tableParams) > 0 {
 		params := make([]string, 0)
 		for param, value := range db.tableParams {
 			if param == "" || value == "" {

@@ -83,8 +83,8 @@ func (db *YDBDialect) SQLType(c *Column) string {
 }
 
 func (b *YDBDialect) AddColumnSQL(tableName string, col *Column) string {
-	col.Default = ""
-	col.Nullable = true
+	col.Nullable = true // Cannot add not null column without default value
+	col.Default = ""    // Column addition with default value is not supported now
 
 	return b.BaseDialect.AddColumnSQL(tableName, col)
 }
@@ -157,6 +157,18 @@ func (b *YDBDialect) Default(col *Column) string {
 	return col.Default
 }
 
+func (b *YDBDialect) ColStringNoPk(col *Column) string {
+	sql := b.dialect.Quote(col.Name) + " "
+
+	sql += b.dialect.SQLType(col) + " NULL " // TODO: remove always NULL when done with add not null columns
+
+	if col.Default != "" {
+		sql += "DEFAULT " + b.dialect.Default(col) + " "
+	}
+
+	return sql
+}
+
 func (b *YDBDialect) CreateTableSQL(table *Table) string {
 	sql := "CREATE TABLE IF NOT EXISTS "
 	sql += b.dialect.Quote(table.Name) + " (\n"
@@ -164,19 +176,21 @@ func (b *YDBDialect) CreateTableSQL(table *Table) string {
 	pkList := table.PrimaryKeys
 
 	for _, col := range table.Columns {
+		if len(pkList) == 0 && !col.Nullable {
+			pkList = []string{col.Name}
+		}
+
 		sql += col.StringNoPk(b.dialect)
 		sql = strings.TrimSpace(sql)
 		sql += "\n, "
 	}
 
-	if len(pkList) > 0 {
-		quotedCols := []string{}
-		for _, col := range pkList {
-			quotedCols = append(quotedCols, b.dialect.Quote(col))
-		}
-
-		sql += "PRIMARY KEY ( " + strings.Join(quotedCols, ",") + " ), "
+	quotedCols := []string{}
+	for _, col := range pkList {
+		quotedCols = append(quotedCols, b.dialect.Quote(col))
 	}
+
+	sql += "PRIMARY KEY ( " + strings.Join(quotedCols, ",") + " ), "
 
 	sql = sql[:len(sql)-2] + ")"
 

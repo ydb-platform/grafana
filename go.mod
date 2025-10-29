@@ -653,11 +653,11 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-require github.com/ydb-platform/ydb-go-sdk/v3 v3.108.1
+require github.com/ydb-platform/ydb-go-sdk/v3 v3.117.2
 
 require (
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
-	github.com/ydb-platform/ydb-go-genproto v0.0.0-20241112172322-ea1f63298f77 // indirect
+	github.com/ydb-platform/ydb-go-genproto v0.0.0-20250911135631-b3beddd517d9 // indirect
 )
 
 // Use fork of crewjam/saml with fixes for some issues until changes get merged into upstream

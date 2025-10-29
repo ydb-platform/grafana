@@ -329,18 +329,18 @@ func (ss *sqlStore) GetSignedInUser(ctx context.Context, query *user.GetSignedIn
 		org.id                as org_id,
 		u.is_service_account  as is_service_account
 		FROM ` + ss.dialect.Quote("user") + ` as u
-		LEFT OUTER JOIN org_user on org_user.org_id = ` + orgId + ` and org_user.user_id = u.id
+		LEFT OUTER JOIN org_user on org_user.user_id = u.id
 		LEFT OUTER JOIN org on org.id = org_user.org_id `
 
 		sess := dbSess.Table("user")
 		sess = sess.Context(ctx)
 		switch {
 		case query.UserID > 0:
-			sess.SQL(rawSQL+"WHERE u.id=?", query.UserID)
+			sess.SQL(rawSQL+"WHERE org_user.org_id = "+orgId+" and u.id=?", query.UserID)
 		case query.Login != "":
-			sess.SQL(rawSQL+"WHERE LOWER(u.login)=LOWER(?)", query.Login)
+			sess.SQL(rawSQL+"WHERE org_user.org_id = "+orgId+" LOWER(u.login)=LOWER(?)", query.Login)
 		case query.Email != "":
-			sess.SQL(rawSQL+"WHERE LOWER(u.email)=LOWER(?)", query.Email)
+			sess.SQL(rawSQL+"WHERE org_user.org_id = "+orgId+" LOWER(u.email)=LOWER(?)", query.Email)
 		default:
 			return user.ErrNoUniqueID
 		}
