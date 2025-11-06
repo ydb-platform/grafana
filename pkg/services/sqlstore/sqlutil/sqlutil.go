@@ -171,18 +171,12 @@ func postgresTestDB() (*TestDB, error) {
 }
 
 func ydbTestDB() (*TestDB, error) {
-	// host := os.Getenv("POSTGRES_HOST")
-	// if host == "" {
-	// 	host = "localhost"
-	// }
-	// port := os.Getenv("POSTGRES_PORT")
-	// if port == "" {
-	// 	port = "5432"
-	// }
-	// connStr := fmt.Sprintf("user=grafanatest password=grafanatest host=%s port=%s dbname=grafanatest sslmode=disable", host, port)
 	return &TestDB{
 		DriverName: "ydb",
 		ConnStr:    "grpc://127.0.0.1:2136/local?go_query_mode=query&go_fake_tx=query&go_query_bind=numeric",
+		Host:       "127.0.0.1",
+		Port:       "2136",
+		Database:   "/local",
 		Cleanup:    func() {},
 	}, nil
 }

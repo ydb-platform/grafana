@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/ydb-platform/ydb-go-sdk/v3/sugar"
 
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
@@ -211,7 +212,11 @@ func (dbCfg *DatabaseConfig) buildConnectionString(cfg *setting.Cfg, features fe
 
 		cnnstr += buildExtraConnectionString('&', dbCfg.UrlQueryParams)
 	case migrator.YDB:
-		cnnstr = dbCfg.ConnectionString
+		cnnstr = sugar.DSN(dbCfg.Host, dbCfg.Name)
+
+		cnnstr += buildExtraConnectionString(' ', dbCfg.UrlQueryParams)
+
+		// cnnstr = "grpc://127.0.0.1:2136/local?go_query_mode=query&go_fake_tx=query&go_query_bind=numeric" // TODO:
 	default:
 		return fmt.Errorf("unknown database type: %s", dbCfg.Type)
 	}

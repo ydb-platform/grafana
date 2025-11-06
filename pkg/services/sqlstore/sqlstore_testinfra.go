@@ -354,7 +354,7 @@ func newMySQLConnString(dbname string) (driver, connString string) {
 }
 
 func newYDBConnString(_ string) (driver, connString string) {
-	return "ydb", "TODO" // TODO: ...
+	return "ydb", "grpc://127.0.0.1:2136/local?go_query_mode=query&go_fake_tx=query&go_query_bind=numeric" // TODO: ...
 }
 
 func newSQLite3DB(tb TestingTB) (*testDB, error) {
