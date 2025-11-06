@@ -95,3 +95,11 @@ func IsTestDBMSSQL() bool {
 
 	return false
 }
+
+func IsTestDBYDB() bool {
+	if db, present := os.LookupEnv("GRAFANA_TEST_DB"); present {
+		return db == migrator.YDB
+	}
+
+	return false
+}

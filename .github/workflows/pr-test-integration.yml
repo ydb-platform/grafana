@@ -152,6 +152,48 @@ jobs:
           set -euo pipefail
           readarray -t PACKAGES <<< "$(./scripts/ci/backend-tests/pkgs-with-tests-named.sh -b TestIntegration | ./scripts/ci/backend-tests/shard.sh -N"$SHARD" -d-)"
           CGO_ENABLED=0 go test -p=1 -tags=mysql -timeout=8m -run '^TestIntegration' "${PACKAGES[@]}"
+  ydb:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.changed == 'true'
+    strategy:
+      matrix:
+        shard: [
+           1/16,  2/16,  3/16,  4/16,
+           5/16,  6/16,  7/16,  8/16,
+           9/16, 10/16, 11/16, 12/16,
+          13/16, 14/16, 15/16, 16/16,
+        ]
+      fail-fast: false
+
+    name: YDB (${{ matrix.shard }})
+    runs-on: ubuntu-x64-large-io
+    permissions:
+      contents: read
+    env:
+      GRAFANA_TEST_DB: ydb
+    services:
+      ydb:
+        image: ydbplatform/local-ydb:25.2.1.7
+        options: --hostname=localhost
+        ports:
+          - 2136:2136
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run tests
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          readarray -t PACKAGES <<< "$(./scripts/ci/backend-tests/pkgs-with-tests-named.sh -b TestIntegration | ./scripts/ci/backend-tests/shard.sh -N"$SHARD" -d-)"
+          CGO_ENABLED=0 go test -p=1 -tags=ydb -timeout=8m -run '^TestIntegration' "${PACKAGES[@]}"
   postgres:
     needs: detect-changes
     if: needs.detect-changes.outputs.changed == 'true'
@@ -201,7 +243,6 @@ jobs:
           set -euo pipefail
           readarray -t PACKAGES <<< "$(./scripts/ci/backend-tests/pkgs-with-tests-named.sh -b TestIntegration | ./scripts/ci/backend-tests/shard.sh -N"$SHARD" -d-)"
           CGO_ENABLED=0 go test -p=1 -tags=postgres -timeout=8m -run '^TestIntegration' "${PACKAGES[@]}"
-
   # This is the job that is actually required by rulesets.
   # We want to only require one job instead of all the individual tests and shards.
   # Future work also allows us to start skipping some tests based on changed files.
@@ -210,6 +251,7 @@ jobs:
       - mysql
       - postgres
       - sqlite
+      - ydb
     # always() is the best function here.
     # success() || failure() will skip this function if any need is also skipped.
     # That means conditional test suites will fail the entire requirement check.

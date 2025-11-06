@@ -258,6 +258,7 @@ require (
 	// Check go.work file for details
 	github.com/grafana/grafana/pkg/promlib v0.0.8 // @grafana/oss-big-tent
 	github.com/grafana/grafana/pkg/semconv v0.0.0-20250804150913-990f1c69ecc2 // @grafana/grafana-app-platform-squad
+	github.com/ydb-platform/ydb-go-sdk/v3 v3.118.0 // @grafana/grafana-search-and-storage
 )
 
 // Replace the workspace versions
@@ -652,8 +653,6 @@ require (
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-require github.com/ydb-platform/ydb-go-sdk/v3 v3.117.2
 
 require (
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
