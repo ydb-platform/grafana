@@ -656,7 +656,8 @@ func (m *managedFolderLibraryPanelActionsMigrator) Exec(sess *xorm.Session, mg *
 		return nil
 	}
 
-	err = batch(len(toAdd), batchSize, func(start, end int) error {
+	insertBatchSize := 100
+	err = batch(len(toAdd), insertBatchSize, func(start, end int) error {
 		if _, err := sess.InsertMulti(toAdd[start:end]); err != nil {
 			return err
 		}
