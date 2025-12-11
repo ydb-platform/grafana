@@ -582,7 +582,16 @@ func (m *managedFolderLibraryPanelActionsMigrator) Exec(sess *xorm.Session, mg *
 	}
 
 	var permissions []ac.Permission
-	if err := sess.SQL("SELECT role_id, action, scope FROM permission WHERE role_id IN(?"+strings.Repeat(" ,?", len(ids)-1)+") AND scope LIKE 'folders:%'", ids...).Find(&permissions); err != nil {
+	roleQueryBatchSize := 100
+	err := batch(len(ids), roleQueryBatchSize, func(start, end int) error {
+		var batchPermissions []ac.Permission
+		if err := sess.SQL("SELECT role_id, action, scope FROM permission WHERE role_id IN(?"+strings.Repeat(" ,?", len(ids[start:end])-1)+") AND scope LIKE 'folders:%'", ids[start:end]...).Find(&batchPermissions); err != nil {
+			return err
+		}
+		permissions = append(permissions, batchPermissions...)
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 
@@ -647,7 +656,7 @@ func (m *managedFolderLibraryPanelActionsMigrator) Exec(sess *xorm.Session, mg *
 		return nil
 	}
 
-	err := batch(len(toAdd), batchSize, func(start, end int) error {
+	err = batch(len(toAdd), batchSize, func(start, end int) error {
 		if _, err := sess.InsertMulti(toAdd[start:end]); err != nil {
 			return err
 		}
