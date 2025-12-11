@@ -1,6 +1,8 @@
 package migrator
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/url"
@@ -8,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
+	"github.com/ydb-platform/ydb-go-sdk/v3"
+	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
 
 	"github.com/grafana/grafana/pkg/util/xorm"
 	"github.com/grafana/grafana/pkg/util/xorm/core"
@@ -228,7 +232,12 @@ func (db *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 				return fmt.Errorf("failed to reset table %q: %w", table.Name, err)
 			}
 		default:
-			if _, err := sess.Exec(fmt.Sprintf("DELETE FROM %v;", db.Quote(table.Name))); err != nil {
+			err := retry.Do(context.Background(), engine.DB().DB, func(ctx context.Context, cc *sql.Conn) error {
+				_, err := sess.Exec(fmt.Sprintf("DELETE FROM %v;", db.Quote(table.Name)))
+				return err
+			})
+
+			if err != nil {
 				if db.isUndefinedTable(err) {
 					continue
 				}
@@ -274,7 +283,7 @@ func (db *YDBDialect) ErrorMessage(err error) string {
 }
 
 func (db *YDBDialect) isUndefinedTable(err error) bool {
-	return db.isThisError(err, "42P01")
+	return ydb.IsOperationErrorSchemeError(err)
 }
 
 func (db *YDBDialect) IsUniqueConstraintViolation(err error) bool {

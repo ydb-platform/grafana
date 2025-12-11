@@ -258,7 +258,7 @@ require (
 	// Check go.work file for details
 	github.com/grafana/grafana/pkg/promlib v0.0.8 // @grafana/oss-big-tent
 	github.com/grafana/grafana/pkg/semconv v0.0.0-20250804150913-990f1c69ecc2 // @grafana/grafana-app-platform-squad
-	github.com/ydb-platform/ydb-go-sdk/v3 v3.118.0 // @grafana/grafana-search-and-storage
+	github.com/ydb-platform/ydb-go-sdk/v3 v3.118.1 // @grafana/grafana-search-and-storage
 )
 
 // Replace the workspace versions
