@@ -173,7 +173,7 @@ func (s *Service) DBMigration(db db.DB) {
 			// covered by UQE_folder_org_id_uid
 			_, err = sess.Exec(`
 				UPSERT INTO folder (uid, org_id, title, created, updated)
-				SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder			
+				SELECT COALESCE(uid, ""), org_id, title, created, updated FROM dashboard WHERE is_folder LIMIT 1000000000000000		
 			`)
 		} else {
 			// covered by UQE_folder_org_id_uid

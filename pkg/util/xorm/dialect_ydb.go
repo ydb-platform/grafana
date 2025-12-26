@@ -3,12 +3,16 @@ package xorm
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
+	"time"
 
 	"github.com/ydb-platform/ydb-go-sdk/v3"
+	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
 
 	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
@@ -295,7 +299,7 @@ const (
 	// Data and Time
 	yql_Date      = "DATE"
 	yql_DateTime  = "DATETIME"
-	yql_Timestamp = "TIMESTAMP"
+	yql_Timestamp = "TIMESTAMP64"
 	yql_Interval  = "INTERVAL"
 
 	// Containers
@@ -308,12 +312,12 @@ func toYQLDataType(t string, isAutoIncrement bool) string {
 		return yql_Bool
 	case core.TinyInt:
 		return yql_Int8
-	case core.SmallInt, core.MediumInt, core.Int, core.Integer, core.BigInt:
-		// 	if isAutoIncrement {
-		// 		return yql_Serial
-		// 	}
-		// 	return yql_Int32
-		// case core.BigInt:
+	case core.Int, core.Integer:
+		if isAutoIncrement {
+			return yql_Serial
+		}
+		return yql_Int32
+	case core.SmallInt, core.MediumInt, core.BigInt:
 		if isAutoIncrement {
 			return yql_BigSerial
 		}
@@ -349,7 +353,7 @@ func yqlToSQLType(yqlType string) core.SQLType {
 	case yql_Int16:
 		return core.SQLType{Name: core.SmallInt, DefaultLength: 0, DefaultLength2: 0}
 	case yql_Int32:
-		return core.SQLType{Name: core.MediumInt, DefaultLength: 0, DefaultLength2: 0}
+		return core.SQLType{Name: core.Integer, DefaultLength: 0, DefaultLength2: 0}
 	case yql_Int64:
 		return core.SQLType{Name: core.BigInt, DefaultLength: 0, DefaultLength2: 0}
 	case yql_Float:
@@ -383,18 +387,326 @@ type ydbDialect struct {
 	tableParams map[string]string // TODO: maybe remove
 }
 
-// TODO:
-// func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-// 	if strings.HasSuffix(w.query, "LIMIT $3;\n") {
-// 		for i, arg := range args {
-// 			if arg.Ordinal == 3 {
-// 				args[i].Value = uint64(arg.Value.(int64))
-// 			}
-// 		}
-// 	}
+// ydbConnectorWrapper wraps driver.Connector to intercept connection creation
+type ydbConnectorWrapper struct {
+	connector driver.Connector
+}
 
-// 	return w.stmtCtx.QueryContext(ctx, args)
-// }
+// ydbConnWrapper wraps driver.Conn to intercept statement preparation
+type ydbConnWrapper struct {
+	conn driver.Conn
+}
+
+// ydbStmtWrapper wraps driver.Stmt to convert time.Duration arguments to int64
+type ydbStmtWrapper struct {
+	stmt  driver.Stmt
+	query string
+}
+
+// migration todo:
+//
+// ALTER TABLE `cache_data` ADD COLUMN created_at_new Int64;
+// UPDATE `cache_data` SET created_at_new = CAST(created_at AS Int64);
+// ALTER TABLE `cache_data` DROP COLUMN created_at;
+// ALTER TABLE `cache_data` ADD COLUMN created_at Int64;
+// UPDATE `cache_data` SET created_at = created_at_new;
+// ALTER TABLE `cache_data` DROP COLUMN created_at_new;
+//
+// ALTER TABLE `cache_data` ADD COLUMN expires_new Int64;
+// UPDATE `cache_data` SET expires_new = CAST(expires AS Int64);
+// ALTER TABLE `cache_data` DROP COLUMN expires;
+// ALTER TABLE `cache_data` ADD COLUMN expires Int64;
+// UPDATE `cache_data` SET expires = expires_new;
+// ALTER TABLE `cache_data` DROP COLUMN expires_new;
+//
+// ALTER TABLE `user` ADD COLUMN version_new Int64;
+// UPDATE `user` SET version_new = CAST(version AS Int64);
+// ALTER TABLE `user` DROP COLUMN version;
+// ALTER TABLE `user` ADD COLUMN version Int64;
+// UPDATE `user` SET version = version_new;
+// ALTER TABLE `user` DROP COLUMN version_new;
+
+// convertArgs converts time.Duration arguments to int64
+func convertArgs(args []driver.NamedValue) []driver.NamedValue {
+	converted := make([]driver.NamedValue, len(args))
+	for i, arg := range args {
+		converted[i] = arg
+		if duration, ok := arg.Value.(time.Duration); ok {
+			converted[i].Value = int64(duration)
+		}
+
+		// if arg.Value == nil && arg.Ordinal == 10 {
+		// 	var nilTime *time.Time
+		// 	converted[i].Value = nilTime
+		// }
+
+		// if arg.Name == "version" {
+		// 	if _i64, ok := arg.Value.(int64); ok {
+		// 		converted[i].Value = int32(_i64)
+		// 	}
+		// }
+	}
+	return converted
+}
+
+// Connect implements driver.Connector interface
+func (w *ydbConnectorWrapper) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := w.connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ydbConnWrapper{conn: conn}, nil
+}
+
+// Driver implements driver.Connector interface
+func (w *ydbConnectorWrapper) Driver() driver.Driver {
+	return w.connector.Driver()
+}
+
+// CheckNamedValue implements driver.NamedValueChecker interface
+func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
+	// Convert time.Duration to int64
+	if duration, ok := nv.Value.(time.Duration); ok {
+		nv.Value = int64(duration)
+		// if nv.Name == "created_at" {
+		// 	nv.Value = int32(duration)
+		// }
+	}
+
+	rv := reflect.ValueOf(nv.Value)
+	if rv.Kind() == reflect.Int {
+		nv.Value = rv.Int()
+	}
+
+	// Handle nil time values
+	// if nv.Value == nil && nv.Ordinal == 10 {
+	// 	var nilTime *time.Time
+	// 	nv.Value = nilTime
+	// 	return nil
+	// }
+
+	// Delegate to underlying connector if it implements NamedValueChecker
+	if checker, ok := w.conn.(driver.NamedValueChecker); ok {
+		return checker.CheckNamedValue(nv)
+	}
+
+	return nil
+}
+
+// Prepare implements driver.Conn interface
+func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
+	stmt, err := w.conn.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	return &ydbStmtWrapper{stmt: stmt, query: query}, nil
+}
+
+// PrepareContext implements driver.ConnPrepareContext interface
+func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	if connCtx, ok := w.conn.(driver.ConnPrepareContext); ok {
+		stmt, err := connCtx.PrepareContext(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		return &ydbStmtWrapper{stmt: stmt, query: query}, nil
+	}
+	return w.Prepare(query)
+}
+
+// Close implements driver.Conn interface
+func (w *ydbConnWrapper) Close() error {
+	return w.conn.Close()
+}
+
+// Begin implements driver.Conn interface
+func (w *ydbConnWrapper) Begin() (driver.Tx, error) {
+	return w.conn.Begin()
+}
+
+// BeginTx implements driver.ConnBeginTx interface
+func (w *ydbConnWrapper) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
+	if connTx, ok := w.conn.(driver.ConnBeginTx); ok {
+		return connTx.BeginTx(ctx, opts)
+	}
+	return w.conn.Begin()
+}
+
+// GetTables delegates to the underlying connection's GetTables method
+func (w *ydbConnWrapper) GetTables(ctx context.Context, path string, recursive bool, excludeSysTables bool) ([]string, error) {
+	if connWithGetTables, ok := w.conn.(interface {
+		GetTables(context.Context, string, bool, bool) ([]string, error)
+	}); ok {
+		return connWithGetTables.GetTables(ctx, path, recursive, excludeSysTables)
+	}
+	return nil, fmt.Errorf("underlying connection does not support GetTables method")
+}
+
+// IsTableExists delegates to the underlying connection's IsTableExists method
+func (w *ydbConnWrapper) IsTableExists(ctx context.Context, tableName string) (bool, error) {
+	if connWithIsTableExists, ok := w.conn.(interface {
+		IsTableExists(context.Context, string) (bool, error)
+	}); ok {
+		return connWithIsTableExists.IsTableExists(ctx, tableName)
+	}
+	return false, fmt.Errorf("underlying connection does not support IsTableExists method")
+}
+
+// GetColumns delegates to the underlying connection's GetColumns method
+func (w *ydbConnWrapper) GetColumns(ctx context.Context, tableName string) ([]string, error) {
+	if connWithGetColumns, ok := w.conn.(interface {
+		GetColumns(context.Context, string) ([]string, error)
+	}); ok {
+		return connWithGetColumns.GetColumns(ctx, tableName)
+	}
+
+	return nil, fmt.Errorf("underlying connection does not support GetColumns method")
+}
+
+func getLastPartOfColumn(column string) string {
+	for i := len(column) - 1; i >= 0; i-- {
+		if column[i] == '.' {
+			return column[i+1:]
+		}
+	}
+
+	return column
+}
+
+// GetColumnType delegates to the underlying connection's GetColumnType method
+func (w *ydbConnWrapper) GetColumnType(ctx context.Context, tableName, columnName string) (string, error) {
+	if connWithGetColumnType, ok := w.conn.(interface {
+		GetColumnType(context.Context, string, string) (string, error)
+	}); ok {
+		return connWithGetColumnType.GetColumnType(ctx, tableName, columnName)
+	}
+	return "", fmt.Errorf("underlying connection does not support GetColumnType method")
+}
+
+// IsPrimaryKey delegates to the underlying connection's IsPrimaryKey method
+func (w *ydbConnWrapper) IsPrimaryKey(ctx context.Context, tableName, columnName string) (bool, error) {
+	if connWithIsPrimaryKey, ok := w.conn.(interface {
+		IsPrimaryKey(context.Context, string, string) (bool, error)
+	}); ok {
+		return connWithIsPrimaryKey.IsPrimaryKey(ctx, tableName, columnName)
+	}
+	return false, fmt.Errorf("underlying connection does not support IsPrimaryKey method")
+}
+
+// IsColumnExists delegates to the underlying connection's IsColumnExists method
+func (w *ydbConnWrapper) IsColumnExists(ctx context.Context, tableName, columnName string) (bool, error) {
+	if connWithIsColumnExists, ok := w.conn.(interface {
+		IsColumnExists(context.Context, string, string) (bool, error)
+	}); ok {
+		return connWithIsColumnExists.IsColumnExists(ctx, tableName, columnName)
+	}
+	return false, fmt.Errorf("underlying connection does not support IsColumnExists method")
+}
+
+// GetIndexes delegates to the underlying connection's GetIndexes method
+func (w *ydbConnWrapper) GetIndexes(ctx context.Context, tableName string) ([]string, error) {
+	if connWithGetIndexes, ok := w.conn.(interface {
+		GetIndexes(context.Context, string) ([]string, error)
+	}); ok {
+		return connWithGetIndexes.GetIndexes(ctx, tableName)
+	}
+	return nil, fmt.Errorf("underlying connection does not support GetIndexes method")
+}
+
+// GetIndexColumns delegates to the underlying connection's GetIndexColumns method
+func (w *ydbConnWrapper) GetIndexColumns(ctx context.Context, tableName, indexName string) ([]string, error) {
+	if connWithGetIndexColumns, ok := w.conn.(interface {
+		GetIndexColumns(context.Context, string, string) ([]string, error)
+	}); ok {
+		return connWithGetIndexColumns.GetIndexColumns(ctx, tableName, indexName)
+	}
+	return nil, fmt.Errorf("underlying connection does not support GetIndexColumns method")
+}
+
+type rowsWrapper struct {
+	driver.Rows
+}
+
+func (w *rowsWrapper) Columns() []string {
+	columns := w.Rows.Columns()
+	for i := range columns {
+		columns[i] = getLastPartOfColumn(columns[i])
+	}
+
+	return columns
+}
+
+// QueryContext intercepts query execution and converts time.Duration to int64
+func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	// Convert time.Duration arguments to int64
+	args = convertArgs(args)
+
+	// Handle special case for LIMIT clause
+	if strings.HasSuffix(w.query, "LIMIT $3;\n") {
+		for i, arg := range args {
+			if arg.Ordinal == 3 {
+				if val, ok := arg.Value.(int64); ok {
+					args[i].Value = uint64(val)
+				}
+			}
+		}
+	}
+
+	// Execute the query with converted arguments
+	if stmtCtx, ok := w.stmt.(driver.StmtQueryContext); ok {
+		rows, err := stmtCtx.QueryContext(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+
+		return &rowsWrapper{Rows: rows}, nil
+	}
+
+	// Fallback to non-context query if StmtQueryContext is not supported
+	values := make([]driver.Value, len(args))
+	for i, arg := range args {
+		values[i] = arg.Value
+	}
+	return w.stmt.Query(values)
+}
+
+// ExecContext intercepts exec execution and converts time.Duration to int64
+func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	// Convert time.Duration arguments to int64
+	args = convertArgs(args)
+
+	// Execute the statement with converted arguments
+	if stmtCtx, ok := w.stmt.(driver.StmtExecContext); ok {
+		return stmtCtx.ExecContext(ctx, args)
+	}
+
+	// Fallback to non-context exec if StmtExecContext is not supported
+	values := make([]driver.Value, len(args))
+	for i, arg := range args {
+		values[i] = arg.Value
+	}
+	return w.stmt.Exec(values)
+}
+
+// Close closes the underlying statement
+func (w *ydbStmtWrapper) Close() error {
+	return w.stmt.Close()
+}
+
+// NumInput returns the number of placeholder parameters
+func (w *ydbStmtWrapper) NumInput() int {
+	return w.stmt.NumInput()
+}
+
+// Exec implements driver.Stmt interface
+func (w *ydbStmtWrapper) Exec(args []driver.Value) (driver.Result, error) {
+	return w.stmt.Exec(args)
+}
+
+// Query implements driver.Stmt interface
+func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
+	return w.stmt.Query(args)
+}
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
 	ydbDriver, err := ydb.Open(context.Background(), dataSource)
@@ -406,14 +718,16 @@ func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource str
 		ydb.WithQueryService(true),
 		ydb.WithFakeTx(ydb.QueryExecuteQueryMode),
 		ydb.WithNumericArgs(),
-		ydb.WithAutoDeclare(),
 	)
 	if err != nil {
 		_ = ydbDriver.Close(context.Background())
 		return err
 	}
 
-	sqldb := sql.OpenDB(connector)
+	// Wrap connector to intercept and convert time.Duration arguments
+	wrappedConnector := &ydbConnectorWrapper{connector: connector}
+
+	sqldb := sql.OpenDB(wrappedConnector)
 
 	d.DB = sqldb
 
@@ -430,11 +744,11 @@ func (db *ydbDialect) SupportInsertMany() bool {
 }
 
 func (db *ydbDialect) SupportCharset() bool {
-	return false // TODO:
+	return false
 }
 
 func (db *ydbDialect) SupportEngine() bool {
-	return false // TODO:
+	return false
 }
 
 func (db *ydbDialect) WithConn(ctx context.Context, f func(context.Context, *sql.Conn) error) error {
@@ -459,7 +773,8 @@ func (db *ydbDialect) SetParams(tableParams map[string]string) {
 
 func (db *ydbDialect) IsTableExist(
 	ctx context.Context,
-	tableName string) (_ bool, err error) {
+	tableName string,
+) (_ bool, err error) {
 	var exists bool
 	err = db.WithConnRaw(ctx, func(dc interface{}) error {
 		q, ok := dc.(interface {
@@ -474,7 +789,6 @@ func (db *ydbDialect) IsTableExist(
 		}
 		return nil
 	})
-
 	if err != nil {
 		return false, err
 	}
@@ -551,7 +865,8 @@ func (db *ydbDialect) IndexOnTable() bool {
 // TODO:
 func (db *ydbDialect) IsColumnExist(
 	tableName,
-	columnName string) (_ bool, err error) {
+	columnName string,
+) (_ bool, err error) {
 	var exists bool
 	ctx := context.TODO()
 	err = db.WithConnRaw(ctx, func(dc interface{}) error {
@@ -567,7 +882,6 @@ func (db *ydbDialect) IsColumnExist(
 		}
 		return nil
 	})
-
 	if err != nil {
 		return false, err
 	}
@@ -578,8 +892,8 @@ func (db *ydbDialect) IsColumnExist(
 func (db *ydbDialect) GetColumns(tableName string) (
 	_ []string,
 	_ map[string]*core.Column,
-	err error) {
-
+	err error,
+) {
 	ctx := context.TODO()
 
 	colNames := make([]string, 0)
@@ -702,7 +1016,8 @@ func (db *ydbDialect) CreateTableSQL(
 	ctx context.Context,
 	_ any,
 	table *core.Table,
-	tableName string) (string, bool, error) {
+	tableName string,
+) (string, bool, error) {
 	tableName = db.Quote(tableName)
 
 	var buf strings.Builder
@@ -922,69 +1237,6 @@ func (ydbDrv *ydbDriver) Parse(driverName, dataSourceName string) (*core.Uri, er
 	return info, nil
 }
 
-// https://pkg.go.dev/database/sql#ColumnType.DatabaseTypeName
-func GenScanResult(columnType string) (interface{}, error) {
-	switch columnType = removeOptional(columnType); columnType {
-	case yql_Bool:
-		var ret sql.NullBool
-		return &ret, nil
-	case yql_Int16:
-		var ret sql.NullInt16
-		return &ret, nil
-	case yql_Int32:
-		var ret sql.NullInt32
-		return &ret, nil
-	case yql_Int64:
-		var ret sql.NullInt64
-		return &ret, nil
-	case yql_Uint8:
-		var ret sql.NullByte
-		return &ret, nil
-	case yql_Double:
-		var ret sql.NullFloat64
-		return &ret, nil
-	case yql_Utf8:
-		var ret sql.NullString
-		return &ret, nil
-	case yql_Timestamp:
-		var ret sql.NullTime
-		return &ret, nil
-	default:
-		var ret sql.RawBytes
-		return &ret, nil
-	}
+func (db *ydbDialect) RetryOnError(err error) bool {
+	return retry.Check(err).MustRetry(true)
 }
-
-// func (ydbDrv *ydbDriver) Scan(ctx *Scan, rows *core.Rows, types []*sql.ColumnType, v ...interface{}) error {
-// 	if err := rows.Scan(v...); err != nil {
-// 		return err
-// 	}
-
-// 	if ctx.UserLocation == nil {
-// 		return nil
-// 	}
-
-// 	for i := range v {
-// 		// !datbeohbbh! YDB saves time in UTC. When returned value is time type, then value will be represented in local time.
-// 		// So value in time type must be converted to UserLocation.
-// 		switch des := v[i].(type) {
-// 		case *time.Time:
-// 			*des = (*des).In(ctx.UserLocation)
-// 		case *sql.NullTime:
-// 			if des.Valid {
-// 				(*des).Time = (*des).Time.In(ctx.UserLocation)
-// 			}
-// 		case *interface{}:
-// 			switch t := (*des).(type) {
-// 			case time.Time:
-// 				*des = t.In(ctx.UserLocation)
-// 			case sql.NullTime:
-// 				if t.Valid {
-// 					*des = t.Time.In(ctx.UserLocation)
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	return nil
-// }
