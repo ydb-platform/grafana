@@ -141,7 +141,7 @@ func (b *Builder) applyFilters() (ordering string) {
 		forceIndex = " FORCE INDEX (IDX_dashboard_title) "
 	}
 
-	b.sql.WriteString(fmt.Sprintf("SELECT dashboard.id FROM dashboard %s", forceIndex))
+	b.sql.WriteString(fmt.Sprintf("SELECT dashboard.id AS id FROM dashboard %s", forceIndex))
 	b.sql.WriteString(strings.Join(joins, ""))
 
 	if len(wheres) > 0 {

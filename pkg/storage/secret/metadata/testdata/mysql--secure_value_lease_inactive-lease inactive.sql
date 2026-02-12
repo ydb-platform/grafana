@@ -1,4 +1,9 @@
-WITH to_update AS (
+UPDATE
+  `secret_secure_value`
+SET
+  `lease_token` = 'token',
+  `lease_created` = 10
+WHERE guid IN (SELECT guid FROM (
   SELECT guid FROM (
     SELECT 
       guid,
@@ -10,11 +15,5 @@ WITH to_update AS (
       10 - `lease_created` > 30
   ) AS sub
   WHERE rn <= 10
-)
-UPDATE
-  `secret_secure_value`
-SET
-  `lease_token` = 'token',
-  `lease_created` = 10
-WHERE guid IN (SELECT guid FROM to_update)
+))
 ;

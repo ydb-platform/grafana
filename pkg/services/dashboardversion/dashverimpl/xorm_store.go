@@ -40,7 +40,7 @@ func (ss *sqlStore) GetBatch(ctx context.Context, cmd *dashver.DeleteExpiredVers
 	var versionIds []any
 	err := ss.db.WithDbSession(ctx, func(sess *db.Session) error {
 		versionIdsToDeleteQuery := `SELECT id
-			FROM dashboard_version, (
+			FROM dashboard_version CROSS JOIN (
 				SELECT dashboard_id, count(version) as count, min(version) as min
 				FROM dashboard_version
 				GROUP BY dashboard_id

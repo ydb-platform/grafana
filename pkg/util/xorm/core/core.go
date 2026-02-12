@@ -245,12 +245,12 @@ type DB struct {
 
 // Open opens a database
 func Open(driverName, dataSourceName string) (*DB, error) {
-	db, err := sql.Open(driverName, dataSourceName)
-	if err != nil {
-		return nil, err
-	}
+	// db, err := sql.Open(driverName, dataSourceName)
+	// if err != nil {
+	// 	return nil, err
+	// }
 	return &DB{
-		DB:           db,
+		//	DB:           db,
 		Mapper:       NewCacheMapper(&SnakeMapper{}),
 		reflectCache: make(map[reflect.Type]*cacheStruct),
 	}, nil
@@ -1868,6 +1868,7 @@ const (
 	MYSQL    = "mysql"
 	MSSQL    = "mssql"
 	ORACLE   = "oracle"
+	YDB      = "ydb"
 )
 
 // xorm SQL types
