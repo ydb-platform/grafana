@@ -795,17 +795,23 @@ func (s *Service) UpdateLegacy(ctx context.Context, cmd *folder.UpdateFolderComm
 			return err
 		}
 
-		if foldr, err = s.store.Update(ctx, folder.UpdateFolderCommand{
+		foldr, err = s.store.Update(ctx, folder.UpdateFolderCommand{
 			UID:            cmd.UID,
 			OrgID:          cmd.OrgID,
 			NewTitle:       &dashFolder.Title,
 			NewDescription: cmd.NewDescription,
 			SignedInUser:   user,
-		}); err != nil {
-			return err
+		})
+		if err != nil {
+			// Legacy folder: exists in dashboard but not in folder table; treat as success and use dashboard result
+			if errors.Is(err, folder.ErrFolderNotFound) {
+				foldr = dashFolder
+			} else {
+				return err
+			}
 		}
 
-		if cmd.NewTitle != nil {
+		if cmd.NewTitle != nil && foldr != nil {
 			metrics.MFolderIDsServiceCount.WithLabelValues(metrics.Folder).Inc()
 
 			if err := s.publishFolderFullPathUpdatedEvent(ctx, foldr.Updated, cmd.OrgID, cmd.UID); err != nil {

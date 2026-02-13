@@ -425,12 +425,11 @@ func (db *YDBDialect) GetDBName(dsn string) (string, error) {
 	return uri.Path, nil
 }
 
-// OrderBy обрабатывает ORDER BY для YDB, заменяя dashboard.title на title
-// в контексте подзапросов и JOIN, где использование префикса таблицы может вызвать ошибку
+// OrderBy returns ORDER BY expression for YDB. The search subquery only selects id,
+// so "dashboard.title" is not in the subquery result and causes "Member not found".
+// We use "title" and the builder must add "dashboard.title AS title" to the subquery
+// SELECT when ordering by title (see searchstore/builder.go).
 func (db *YDBDialect) OrderBy(order string) string {
-	// В YDB при использовании подзапросов и JOIN, использование dashboard.title
-	// может вызвать ошибку "Member not found: dashboard.title"
-	// Заменяем на просто title, так как после JOIN поле доступно напрямую
 	order = strings.ReplaceAll(order, "dashboard.title", "title")
 	return order
 }

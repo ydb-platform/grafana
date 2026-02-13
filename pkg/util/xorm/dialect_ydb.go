@@ -449,41 +449,174 @@ func convertArgs(args []driver.NamedValue) []driver.NamedValue {
 		if duration, ok := arg.Value.(time.Duration); ok {
 			converted[i].Value = int64(duration)
 		}
-
-		// if arg.Value == nil && arg.Ordinal == 10 {
-		// 	var nilTime *time.Time
-		// 	converted[i].Value = nilTime
-		// }
-
-		// if arg.Name == "version" {
-		// 	if _i64, ok := arg.Value.(int64); ok {
-		// 		converted[i].Value = int32(_i64)
-		// 	}
-		// }
 	}
 	return converted
 }
 
-// isInt64ToInt32ConversionError проверяет, является ли ошибка ошибкой конвертации Int64 -> Int32
+// parseInsertColumnOrdinal returns the 1-based ordinal of a column in the column list
+// of an INSERT/REPLACE query, or 0 if the query is not recognized or the column is not found.
+// Allows converting arguments without binding to specific table or column names.
+func parseInsertColumnOrdinal(query, columnName string) int {
+	queryLower := strings.ToLower(strings.TrimSpace(query))
+	insertIdx := strings.Index(queryLower, "insert into")
+	if insertIdx < 0 {
+		insertIdx = strings.Index(queryLower, "replace into")
+	}
+	if insertIdx < 0 {
+		return 0
+	}
+	// Find the first '(' after INSERT INTO / REPLACE INTO — that is the column list
+	afterInsert := query[insertIdx:]
+	open := strings.Index(afterInsert, "(")
+	if open < 0 {
+		return 0
+	}
+	// Find the matching closing parenthesis
+	depth := 1
+	for i := open + 1; i < len(afterInsert); i++ {
+		switch afterInsert[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				columnList := afterInsert[open+1 : i]
+				columns := splitSQLColumnList(columnList)
+				colLower := strings.ToLower(columnName)
+				for idx, col := range columns {
+					if strings.ToLower(col) == colLower {
+						return idx + 1
+					}
+				}
+				return 0
+			}
+		}
+	}
+	return 0
+}
+
+// splitSQLColumnList splits a column list like "`a`, `b`, `c`" or "a, b, c" into column names.
+func splitSQLColumnList(list string) []string {
+	var columns []string
+	var current strings.Builder
+	inQuote := false
+	var quoteChar rune
+	for _, r := range list {
+		switch {
+		case !inQuote && (r == '`' || r == '"'):
+			inQuote = true
+			quoteChar = r
+		case inQuote && r == quoteChar:
+			inQuote = false
+		case !inQuote && (r == ',' || r == ' '):
+			if r == ',' {
+				if s := strings.TrimSpace(current.String()); s != "" {
+					columns = append(columns, s)
+				}
+				current.Reset()
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if s := strings.TrimSpace(current.String()); s != "" {
+		columns = append(columns, s)
+	}
+	return columns
+}
+
+// parseUpdateColumnOrdinal returns the 1-based ordinal of the placeholder for columnName in the
+// SET clause of an UPDATE query (e.g. UPDATE t SET a=?, b=?, c=? -> ordinal of "b" is 2), or 0 if not found.
+func parseUpdateColumnOrdinal(query, columnName string) int {
+	queryLower := strings.ToLower(strings.TrimSpace(query))
+	setIdx := strings.Index(queryLower, " set ")
+	if setIdx < 0 {
+		return 0
+	}
+	// SET clause: from " SET " to " WHERE " or end of query
+	afterSet := query[setIdx+5:]
+	whereIdx := strings.Index(strings.ToLower(afterSet), " where ")
+	var setClause string
+	if whereIdx >= 0 {
+		setClause = strings.TrimSpace(afterSet[:whereIdx])
+	} else {
+		setClause = strings.TrimSpace(afterSet)
+	}
+	// Split by comma to get "col=?" parts (no nested parens in typical SET)
+	var columns []string
+	var current strings.Builder
+	depth := 0
+	for _, r := range setClause {
+		switch r {
+		case '(':
+			depth++
+			current.WriteRune(r)
+		case ')':
+			depth--
+			current.WriteRune(r)
+		case ',':
+			if depth == 0 {
+				part := strings.TrimSpace(current.String())
+				if part != "" {
+					col := columnNameFromSetPart(part)
+					if col != "" {
+						columns = append(columns, col)
+					}
+				}
+				current.Reset()
+			} else {
+				current.WriteRune(r)
+			}
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if s := strings.TrimSpace(current.String()); s != "" {
+		if col := columnNameFromSetPart(s); col != "" {
+			columns = append(columns, col)
+		}
+	}
+	colLower := strings.ToLower(columnName)
+	for idx, col := range columns {
+		if strings.ToLower(col) == colLower {
+			return idx + 1
+		}
+	}
+	return 0
+}
+
+// columnNameFromSetPart extracts the column name from "col=?" or "col = ?" or "`col`=?".
+func columnNameFromSetPart(part string) string {
+	eq := strings.Index(part, "=")
+	if eq <= 0 {
+		return ""
+	}
+	name := strings.TrimSpace(part[:eq])
+	// Strip quotes/backticks
+	name = strings.Trim(name, "`\"")
+	return strings.TrimSpace(name)
+}
+
+// isInt64ToInt32ConversionError reports whether the error is an Int64 -> Int32 conversion error.
 func isInt64ToInt32ConversionError(err error) bool {
 	if err == nil {
 		return false
 	}
 	errStr := err.Error()
 	return strings.Contains(errStr, "Failed to convert") &&
-		strings.Contains(errStr, "Int64 to Int32")
+		(strings.Contains(errStr, "Int64 to Int32") || strings.Contains(errStr, "Int64 to Optional<Int32>"))
 }
 
-// extractFieldNameFromError извлекает имя поля из ошибки конвертации
-// Формат ошибки: "Failed to convert 'version': Int64 to Int32"
+// extractFieldNameFromError extracts the field name from a conversion error.
+// Error format: "Failed to convert 'version': Int64 to Int32" or "Failed to convert 'version': Int64 to Optional<Int32>"
 func extractFieldNameFromError(err error) string {
 	if err == nil {
 		return ""
 	}
 	errStr := err.Error()
 
-	// Ищем паттерн: 'Failed to convert '<field_name>': Int64 to Int32'
-	re := regexp.MustCompile(`Failed to convert '([^']+)': Int64 to Int32`)
+	// Match pattern: 'Failed to convert '<field_name>': Int64 to [Optional<]Int32[>]'
+	re := regexp.MustCompile(`Failed to convert '([^']+)': Int64 to (?:Optional<)?Int32(?:>)?`)
 	matches := re.FindStringSubmatch(errStr)
 	if len(matches) > 1 {
 		return matches[1]
@@ -491,36 +624,55 @@ func extractFieldNameFromError(err error) string {
 	return ""
 }
 
-// convertInt64ToInt32Args конвертирует указанные поля из int64 в int32
-func convertInt64ToInt32Args(args []driver.NamedValue, fieldName string) []driver.NamedValue {
+// convertInt64ToInt32Args converts the given field from int64 to int32.
+// fieldName is taken from the YDB error; conversion is by parameter name or by position
+// in the query (parsing INSERT/REPLACE), without binding to specific tables.
+func convertInt64ToInt32Args(args []driver.NamedValue, fieldName, query string) []driver.NamedValue {
 	converted := make([]driver.NamedValue, len(args))
-	convertedCount := 0
+	copy(converted, args)
 
-	for i, arg := range args {
-		converted[i] = arg
-		// Проверяем по имени поля или по имени параметра
-		// Также проверяем, содержит ли имя параметра имя поля (для случаев типа "table.version")
-		if fieldName != "" {
-			argNameLower := strings.ToLower(arg.Name)
-			fieldNameLower := strings.ToLower(fieldName)
-			// Проверяем точное совпадение или вхождение имени поля в имя параметра
-			if argNameLower == fieldNameLower ||
-				strings.Contains(argNameLower, fieldNameLower) ||
-				strings.HasSuffix(argNameLower, "."+fieldNameLower) {
-				if val, ok := arg.Value.(int64); ok {
-					converted[i].Value = int32(val)
-					convertedCount++
-				}
+	if fieldName == "" {
+		return converted
+	}
+
+	fieldLower := strings.ToLower(fieldName)
+	convertedByOrdinal := false
+
+	for i := range converted {
+		arg := &converted[i]
+		argNameLower := strings.ToLower(arg.Name)
+		if argNameLower == fieldLower ||
+			strings.Contains(argNameLower, fieldLower) ||
+			strings.HasSuffix(argNameLower, "."+fieldLower) {
+			if v, ok := arg.Value.(int64); ok {
+				arg.Value = int32(v)
+				convertedByOrdinal = true
 			}
 		}
 	}
 
-	// Если не нашли совпадений по имени, но имя поля было извлечено из ошибки,
-	// конвертируем все int64 аргументы в int32 (fallback для позиционных параметров)
-	if fieldName != "" && convertedCount == 0 {
-		for i, arg := range args {
-			if val, ok := arg.Value.(int64); ok {
-				converted[i].Value = int32(val)
+	// If not found by parameter name — determine position from query text (INSERT or UPDATE)
+	if !convertedByOrdinal && query != "" {
+		ord := parseInsertColumnOrdinal(query, fieldName)
+		if ord == 0 {
+			ord = parseUpdateColumnOrdinal(query, fieldName)
+		}
+		if ord > 0 {
+			// Prefer conversion by Ordinal (1-based) in case slice order differs from placeholder order
+			foundByOrdinal := false
+			for i := range converted {
+				if converted[i].Ordinal == ord {
+					if v, ok := converted[i].Value.(int64); ok {
+						converted[i].Value = int32(v)
+					}
+					foundByOrdinal = true
+					break
+				}
+			}
+			if !foundByOrdinal && ord <= len(converted) {
+				if v, ok := converted[ord-1].Value.(int64); ok {
+					converted[ord-1].Value = int32(v)
+				}
 			}
 		}
 	}
@@ -719,7 +871,6 @@ func (w *rowsWrapper) Columns() []string {
 
 // QueryContext intercepts query execution and converts time.Duration to int64
 func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	// Convert time.Duration arguments to int64
 	args = convertArgs(args)
 
 	// Handle special case for LIMIT clause
@@ -733,102 +884,86 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 		}
 	}
 
-	// Execute the query with converted arguments
+	// Execute with retry loop: one INSERT/UPDATE can have multiple Int32 columns (version, updated_by, etc.)
 	if stmtCtx, ok := w.stmt.(driver.StmtQueryContext); ok {
-		rows, err := stmtCtx.QueryContext(ctx, args)
-		if err != nil {
-			// Автоматически обрабатываем ошибки конвертации Int64 -> Int32
-			// Пользователь не должен видеть эти ошибки
-			if isInt64ToInt32ConversionError(err) {
-				fieldName := extractFieldNameFromError(err)
-				// Конвертируем соответствующие аргументы и повторяем запрос
-				convertedArgs := convertInt64ToInt32Args(args, fieldName)
-				rows, retryErr := stmtCtx.QueryContext(ctx, convertedArgs)
-				if retryErr != nil {
-					// Если повторная попытка тоже неудачна, возвращаем ошибку повторной попытки
-					// (исходная ошибка конвертации скрыта от пользователя)
-					return nil, retryErr
-				}
-				// Успешная повторная попытка - возвращаем результат без ошибки
+		const maxInt32Retries = 20
+		currentArgs := args
+		for attempt := 0; attempt < maxInt32Retries; attempt++ {
+			rows, err := stmtCtx.QueryContext(ctx, currentArgs)
+			if err == nil {
 				return &rowsWrapper{Rows: rows}, nil
 			}
+			if !isInt64ToInt32ConversionError(err) {
+				return nil, err
+			}
+			fieldName := extractFieldNameFromError(err)
+			currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
+		}
+		return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	}
+
+	// Fallback to non-context query with retry loop
+	currentArgs := args
+	const maxInt32Retries = 20
+	for attempt := 0; attempt < maxInt32Retries; attempt++ {
+		values := make([]driver.Value, len(currentArgs))
+		for i, arg := range currentArgs {
+			values[i] = arg.Value
+		}
+		rows, err := w.stmt.Query(values)
+		if err == nil {
+			return rows, nil
+		}
+		if !isInt64ToInt32ConversionError(err) {
 			return nil, err
 		}
-
-		return &rowsWrapper{Rows: rows}, nil
+		fieldName := extractFieldNameFromError(err)
+		currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 	}
-
-	// Fallback to non-context query if StmtQueryContext is not supported
-	values := make([]driver.Value, len(args))
-	for i, arg := range args {
-		values[i] = arg.Value
-	}
-	rows, err := w.stmt.Query(values)
-	if err != nil {
-		// Обрабатываем ошибки конвертации и для fallback метода
-		if isInt64ToInt32ConversionError(err) {
-			fieldName := extractFieldNameFromError(err)
-			convertedArgs := convertInt64ToInt32Args(args, fieldName)
-			convertedValues := make([]driver.Value, len(convertedArgs))
-			for i, arg := range convertedArgs {
-				convertedValues[i] = arg.Value
-			}
-			return w.stmt.Query(convertedValues)
-		}
-		return nil, err
-	}
-	return rows, nil
+	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
 }
 
 // ExecContext intercepts exec execution and converts time.Duration to int64
 func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	// Convert time.Duration arguments to int64
 	args = convertArgs(args)
 
-	// Execute the statement with converted arguments
+	// Execute with retry loop: one INSERT/UPDATE can have multiple Int32 columns
 	if stmtCtx, ok := w.stmt.(driver.StmtExecContext); ok {
-		result, err := stmtCtx.ExecContext(ctx, args)
-		if err != nil {
-			// Автоматически обрабатываем ошибки конвертации Int64 -> Int32
-			// Пользователь не должен видеть эти ошибки
-			if isInt64ToInt32ConversionError(err) {
-				fieldName := extractFieldNameFromError(err)
-				// Конвертируем соответствующие аргументы и повторяем запрос
-				convertedArgs := convertInt64ToInt32Args(args, fieldName)
-				retryResult, retryErr := stmtCtx.ExecContext(ctx, convertedArgs)
-				if retryErr != nil {
-					// Если повторная попытка тоже неудачна, возвращаем ошибку повторной попытки
-					// (исходная ошибка конвертации скрыта от пользователя)
-					return nil, retryErr
-				}
-				// Успешная повторная попытка - возвращаем результат без ошибки
-				return retryResult, nil
+		const maxInt32Retries = 20
+		currentArgs := args
+		for attempt := 0; attempt < maxInt32Retries; attempt++ {
+			result, err := stmtCtx.ExecContext(ctx, currentArgs)
+			if err == nil {
+				return result, nil
 			}
-			return nil, err
+			if !isInt64ToInt32ConversionError(err) {
+				return nil, err
+			}
+			fieldName := extractFieldNameFromError(err)
+			currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 		}
-		return result, nil
+		return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
 	}
 
-	// Fallback to non-context exec if StmtExecContext is not supported
-	values := make([]driver.Value, len(args))
-	for i, arg := range args {
-		values[i] = arg.Value
-	}
-	result, err := w.stmt.Exec(values)
-	if err != nil {
-		// Обрабатываем ошибки конвертации и для fallback метода
-		if isInt64ToInt32ConversionError(err) {
-			fieldName := extractFieldNameFromError(err)
-			convertedArgs := convertInt64ToInt32Args(args, fieldName)
-			convertedValues := make([]driver.Value, len(convertedArgs))
-			for i, arg := range convertedArgs {
-				convertedValues[i] = arg.Value
-			}
-			return w.stmt.Exec(convertedValues)
+	// Fallback to non-context exec with retry loop
+	currentArgs := args
+	const maxInt32Retries = 20
+	for attempt := 0; attempt < maxInt32Retries; attempt++ {
+		values := make([]driver.Value, len(currentArgs))
+		for i, arg := range currentArgs {
+			values[i] = arg.Value
 		}
-		return nil, err
+		result, err := w.stmt.Exec(values)
+		if err == nil {
+			return result, nil
+		}
+		if !isInt64ToInt32ConversionError(err) {
+			return nil, err
+		}
+		fieldName := extractFieldNameFromError(err)
+		currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 	}
-	return result, nil
+	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
 }
 
 // Close closes the underlying statement
@@ -843,54 +978,54 @@ func (w *ydbStmtWrapper) NumInput() int {
 
 // Exec implements driver.Stmt interface
 func (w *ydbStmtWrapper) Exec(args []driver.Value) (driver.Result, error) {
-	result, err := w.stmt.Exec(args)
-	if err != nil {
-		// Автоматически обрабатываем ошибки конвертации Int64 -> Int32
-		// Пользователь не должен видеть эти ошибки
-		if isInt64ToInt32ConversionError(err) {
-			fieldName := extractFieldNameFromError(err)
-			// Конвертируем аргументы
-			namedArgs := make([]driver.NamedValue, len(args))
-			for i, val := range args {
-				namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
-			}
-			convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName)
-			convertedValues := make([]driver.Value, len(convertedArgs))
-			for i, arg := range convertedArgs {
-				convertedValues[i] = arg.Value
-			}
-			// Повторяем запрос с конвертированными аргументами
-			return w.stmt.Exec(convertedValues)
+	currentValues := args
+	const maxInt32Retries = 20
+	for attempt := 0; attempt < maxInt32Retries; attempt++ {
+		result, err := w.stmt.Exec(currentValues)
+		if err == nil {
+			return result, nil
 		}
-		return nil, err
+		if !isInt64ToInt32ConversionError(err) {
+			return nil, err
+		}
+		fieldName := extractFieldNameFromError(err)
+		namedArgs := make([]driver.NamedValue, len(currentValues))
+		for i, val := range currentValues {
+			namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
+		}
+		convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
+		currentValues = make([]driver.Value, len(convertedArgs))
+		for i, arg := range convertedArgs {
+			currentValues[i] = arg.Value
+		}
 	}
-	return result, nil
+	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
 }
 
 // Query implements driver.Stmt interface
 func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
-	rows, err := w.stmt.Query(args)
-	if err != nil {
-		// Автоматически обрабатываем ошибки конвертации Int64 -> Int32
-		// Пользователь не должен видеть эти ошибки
-		if isInt64ToInt32ConversionError(err) {
-			fieldName := extractFieldNameFromError(err)
-			// Конвертируем аргументы
-			namedArgs := make([]driver.NamedValue, len(args))
-			for i, val := range args {
-				namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
-			}
-			convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName)
-			convertedValues := make([]driver.Value, len(convertedArgs))
-			for i, arg := range convertedArgs {
-				convertedValues[i] = arg.Value
-			}
-			// Повторяем запрос с конвертированными аргументами
-			return w.stmt.Query(convertedValues)
+	currentValues := args
+	const maxInt32Retries = 20
+	for attempt := 0; attempt < maxInt32Retries; attempt++ {
+		rows, err := w.stmt.Query(currentValues)
+		if err == nil {
+			return rows, nil
 		}
-		return nil, err
+		if !isInt64ToInt32ConversionError(err) {
+			return nil, err
+		}
+		fieldName := extractFieldNameFromError(err)
+		namedArgs := make([]driver.NamedValue, len(currentValues))
+		for i, val := range currentValues {
+			namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
+		}
+		convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
+		currentValues = make([]driver.Value, len(convertedArgs))
+		for i, arg := range convertedArgs {
+			currentValues[i] = arg.Value
+		}
 	}
-	return rows, nil
+	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
 }
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
@@ -920,6 +1055,11 @@ func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource str
 	d.DB = sqldb
 
 	return db.Base.Init(core.FromDB(sqldb), db, uri, drivername, dataSource)
+}
+
+func (db *ydbDialect) GetIndexes(tableName string) (map[string]*core.Index, error) {
+	// YDB index introspection not implemented; return empty so xorm schema operations don't fail.
+	return map[string]*core.Index{}, nil
 }
 
 func (db *ydbDialect) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
@@ -998,6 +1138,52 @@ func (db *ydbDialect) IsReserved(name string) bool {
 
 func (db *ydbDialect) SqlType(column *core.Column) string {
 	return toYQLDataType(column.SQLType.Name, column.IsAutoIncrement)
+}
+
+// sqlTypeForCreateTable returns the YQL type for a column when creating a table.
+// migration_log.timestamp must be DATETIME so INSERT/RETURNING does not fail with "Timestamp to Optional<Date>".
+func (db *ydbDialect) sqlTypeForCreateTable(tableName string, col *core.Column) string {
+	unquoted := strings.Trim(tableName, "`\"")
+	if strings.HasSuffix(unquoted, "migration_log") && col.Name == "timestamp" {
+		return yql_DateTime
+	}
+	return db.SqlType(col)
+}
+
+// CreateTableSql implements the Dialect interface; used by Sync2 (e.g. migration_log).
+// We override so migration_log.timestamp gets DATETIME (avoids "Timestamp to Optional<Date>" on INSERT).
+func (db *ydbDialect) CreateTableSql(table *core.Table, tableName, storeEngine, charset string) string {
+	if tableName == "" {
+		tableName = table.Name
+	}
+	parts := make([]string, 0, len(table.ColumnsSeq())+2)
+	for _, colName := range table.ColumnsSeq() {
+		col := table.GetColumn(colName)
+		dataType := db.sqlTypeForCreateTable(tableName, col)
+		part := db.Quote(col.Name) + " " + dataType + " "
+		if col.IsPrimaryKey && len(table.PrimaryKeys) == 1 {
+			part += "PRIMARY KEY " + db.AutoIncrStr() + " "
+		}
+		if col.Default != "" {
+			part += "DEFAULT " + col.Default + " "
+		}
+		if db.ShowCreateNull() {
+			if col.Nullable {
+				part += "NULL "
+			} else {
+				part += "NOT NULL "
+			}
+		}
+		parts = append(parts, strings.TrimSpace(part))
+	}
+	if len(table.PrimaryKeys) > 1 {
+		quoted := make([]string, len(table.PrimaryKeys))
+		for i, pk := range table.PrimaryKeys {
+			quoted[i] = db.Quote(pk)
+		}
+		parts = append(parts, "PRIMARY KEY ( "+strings.Join(quoted, ", ")+" )")
+	}
+	return "CREATE TABLE IF NOT EXISTS " + db.Quote(tableName) + " (" + strings.Join(parts, ", ") + ")"
 }
 
 // https://pkg.go.dev/database/sql#ColumnType.DatabaseTypeName
@@ -1163,41 +1349,6 @@ func (db *ydbDialect) GetTables() (_ []*core.Table, err error) {
 	return tables, nil
 }
 
-func (db *ydbDialect) GetIndexes(tableName string) (_ map[string]*core.Index, err error) {
-	panic(tableName)
-	indexes := make(map[string]*core.Index, 0)
-	ctx := context.TODO()
-	err = db.WithConnRaw(ctx, func(dc interface{}) error {
-		q, ok := dc.(interface {
-			GetIndexes(context.Context, string) ([]string, error)
-			GetIndexColumns(context.Context, string, string) ([]string, error)
-		})
-		if !ok {
-			return fmt.Errorf("driver does not support method [GetIndexes]")
-		}
-		indexNames, err := q.GetIndexes(ctx, tableName)
-		if err != nil {
-			return err
-		}
-		for _, indexName := range indexNames {
-			cols, err := q.GetIndexColumns(ctx, tableName, indexName)
-			if err != nil {
-				return err
-			}
-			indexes[indexName] = &core.Index{
-				Name: indexName,
-				Type: core.IndexType,
-				Cols: cols,
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return indexes, nil
-}
-
 // !datbeohbbh! CreateTableSQL generate `CREATE TABLE` YQL.
 // Method does not generate YQL for creating index.
 func (db *ydbDialect) CreateTableSQL(
@@ -1225,9 +1376,14 @@ func (db *ydbDialect) CreateTableSQL(
 
 	// build column
 	columnsList := []string{}
+	unquotedTableName := strings.Trim(tableName, "`\"")
 	for _, c := range table.Columns() {
 		columnName := db.Quote(c.Name)
 		dataType := db.SqlType(c)
+		// YDB INSERT/RETURNING for migration_log expects timestamp column as Date; TIMESTAMP64 causes "Timestamp to Optional<Date>" conversion error
+		if strings.HasSuffix(unquotedTableName, "migration_log") && c.Name == "timestamp" {
+			dataType = yql_DateTime
+		}
 
 		if _, isPk := pkMap[columnName]; isPk {
 			columnsList = append(columnsList, fmt.Sprintf("%s %s NOT NULL", columnName, dataType))
