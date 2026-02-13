@@ -2,6 +2,7 @@ package statsimpl
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"time"
@@ -122,59 +123,67 @@ func notServiceAccount(dialect migrator.Dialect) string {
 
 func (ss *sqlStatsService) GetSystemStats(ctx context.Context, query *stats.GetSystemStatsQuery) (result *stats.SystemStats, err error) {
 	dialect := ss.db.GetDialect()
-	err = ss.db.WithDbSession(ctx, func(dbSession *db.Session) error {
-		sb := &db.SQLBuilder{}
-		sb.Write("SELECT ")
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("user") + ` WHERE ` + notServiceAccount(dialect) + `) AS users,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("data_source") + `) AS datasources,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("star") + `) AS stars,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("playlist") + `) AS playlists,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("alert") + `) AS alerts,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("correlation") + `) AS correlations,`)
 
-		now := time.Now()
-		activeUserDeadlineDate := now.Add(-activeUserTimeLimit)
-		sb.Write(`(SELECT COUNT(*) FROM `+dialect.Quote("user")+` WHERE `+
-			notServiceAccount(dialect)+` AND last_seen_at > ?) AS active_users,`, activeUserDeadlineDate)
-
-		dailyActiveUserDeadlineDate := now.Add(-dailyActiveUserTimeLimit)
-		sb.Write(`(SELECT COUNT(*) FROM `+dialect.Quote("user")+` WHERE `+
-			notServiceAccount(dialect)+` AND last_seen_at > ?) AS daily_active_users,`, dailyActiveUserDeadlineDate)
-
-		monthlyActiveUserDeadlineDate := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-		sb.Write(`(SELECT COUNT(*) FROM `+dialect.Quote("user")+` WHERE `+
-			notServiceAccount(dialect)+` AND last_seen_at > ?) AS monthly_active_users,`, monthlyActiveUserDeadlineDate)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_provisioning") + `) AS provisioned_dashboards,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_snapshot") + `) AS snapshots,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_version") + `) AS dashboard_versions,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("annotation") + `) AS annotations,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("team") + `) AS teams,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("user_auth_token") + `) AS auth_tokens,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("alert_rule") + `) AS alert_rules,`)
-		sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("api_key") + `WHERE service_account_id IS NULL) AS api_keys,`)
-		sb.Write(`(SELECT COUNT(id) FROM `+dialect.Quote("library_element")+` WHERE kind = ?) AS library_panels,`, model.PanelElement)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("data_keys") + `) AS data_keys,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("data_keys") + `WHERE active = true) AS active_data_keys,`)
-		sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("dashboard_public") + `) AS public_dashboards,`)
-		sb.Write(`(SELECT MIN(timestamp) FROM ` + dialect.Quote("migration_log") + `) AS database_created_time,`)
-		if ss.IsUnifiedAlertingEnabled() {
-			sb.Write(`(SELECT COUNT(DISTINCT (` + dialect.Quote("rule_group") + `)) FROM ` + dialect.Quote("alert_rule") + `) AS rule_groups,`)
-		}
-
-		sb.Write(ss.roleCounterSQL(ctx))
-
-		var stats stats.SystemStats
-		_, err := dbSession.SQL(sb.GetSQLString(), sb.GetParams()...).Get(&stats)
+	// YDB does not support multiple scalar subqueries in one SELECT (error "missing '::' at 'COUNT'").
+	if dialect.DriverName() == migrator.YDB {
+		result, err = ss.getSystemStatsYDB(ctx, dialect)
 		if err != nil {
-			return err
+			return result, err
 		}
-
-		result = &stats
-
 		result.DatabaseDriver = dialect.DriverName()
+		// Orgs, Dashboards, Folders are set below
+	} else {
+		err = ss.db.WithDbSession(ctx, func(dbSession *db.Session) error {
+			sb := &db.SQLBuilder{}
+			sb.Write("SELECT ")
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("user") + ` WHERE ` + notServiceAccount(dialect) + `) AS users,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("data_source") + `) AS datasources,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("star") + `) AS stars,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("playlist") + `) AS playlists,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("alert") + `) AS alerts,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("correlation") + `) AS correlations,`)
 
-		return nil
-	})
+			now := time.Now()
+			activeUserDeadlineDate := now.Add(-activeUserTimeLimit)
+			sb.Write(`(SELECT COUNT(*) FROM `+dialect.Quote("user")+` WHERE `+
+				notServiceAccount(dialect)+` AND last_seen_at > ?) AS active_users,`, activeUserDeadlineDate)
+
+			dailyActiveUserDeadlineDate := now.Add(-dailyActiveUserTimeLimit)
+			sb.Write(`(SELECT COUNT(*) FROM `+dialect.Quote("user")+` WHERE `+
+				notServiceAccount(dialect)+` AND last_seen_at > ?) AS daily_active_users,`, dailyActiveUserDeadlineDate)
+
+			monthlyActiveUserDeadlineDate := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+			sb.Write(`(SELECT COUNT(*) FROM `+dialect.Quote("user")+` WHERE `+
+				notServiceAccount(dialect)+` AND last_seen_at > ?) AS monthly_active_users,`, monthlyActiveUserDeadlineDate)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_provisioning") + `) AS provisioned_dashboards,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_snapshot") + `) AS snapshots,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("dashboard_version") + `) AS dashboard_versions,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("annotation") + `) AS annotations,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("team") + `) AS teams,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("user_auth_token") + `) AS auth_tokens,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("alert_rule") + `) AS alert_rules,`)
+			sb.Write(`(SELECT COUNT(id) FROM ` + dialect.Quote("api_key") + ` WHERE service_account_id IS NULL) AS api_keys,`)
+			sb.Write(`(SELECT COUNT(id) FROM `+dialect.Quote("library_element")+` WHERE kind = ?) AS library_panels,`, model.PanelElement)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("data_keys") + `) AS data_keys,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("data_keys") + ` WHERE active = true) AS active_data_keys,`)
+			sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("dashboard_public") + `) AS public_dashboards,`)
+			sb.Write(`(SELECT MIN(timestamp) FROM ` + dialect.Quote("migration_log") + `) AS database_created_time,`)
+			if ss.IsUnifiedAlertingEnabled() {
+				sb.Write(`(SELECT COUNT(DISTINCT (` + dialect.Quote("rule_group") + `)) FROM ` + dialect.Quote("alert_rule") + `) AS rule_groups,`)
+			}
+
+			sb.Write(ss.roleCounterSQL(ctx))
+
+			var sysStats stats.SystemStats
+			_, err := dbSession.SQL(sb.GetSQLString(), sb.GetParams()...).Get(&sysStats)
+			if err != nil {
+				return err
+			}
+			result = &sysStats
+			result.DatabaseDriver = dialect.DriverName()
+			return nil
+		})
+	}
 	if err != nil {
 		return result, err
 	}
@@ -199,6 +208,151 @@ func (ss *sqlStatsService) GetSystemStats(ctx context.Context, query *stats.GetS
 	result.Folders = folderCount
 
 	return result, err
+}
+
+// getSystemStatsYDB runs separate COUNT/MIN queries for YDB (no multiple scalar subqueries in one SELECT).
+func (ss *sqlStatsService) getSystemStatsYDB(ctx context.Context, dialect migrator.Dialect) (*stats.SystemStats, error) {
+	now := time.Now()
+	activeUserDeadline := now.Add(-activeUserTimeLimit)
+	dailyActiveUserDeadline := now.Add(-dailyActiveUserTimeLimit)
+	monthlyActiveUserDeadline := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+
+	notSA := notServiceAccount(dialect)
+	result := &stats.SystemStats{}
+
+	// Use a local variable for each Get() to avoid xorm reflect panic when scanning into a struct field address.
+	runCount := func(sess *db.Session, sql string, args []any) (int64, error) {
+		var c int64
+		var err error
+		if len(args) == 0 {
+			_, err = sess.SQL(sql).Get(&c)
+		} else {
+			_, err = sess.SQL(sql, args...).Get(&c)
+		}
+		return c, err
+	}
+	err := ss.db.WithDbSession(ctx, func(sess *db.Session) error {
+		var c int64
+		var err error
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("user")+` WHERE `+notSA, nil); err != nil {
+			return err
+		}
+		result.Users = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("data_source"), nil); err != nil {
+			return err
+		}
+		result.Datasources = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("star"), nil); err != nil {
+			return err
+		}
+		result.Stars = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("playlist"), nil); err != nil {
+			return err
+		}
+		result.Playlists = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("alert"), nil); err != nil {
+			return err
+		}
+		result.Alerts = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("correlation"), nil); err != nil {
+			return err
+		}
+		result.Correlations = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("user")+` WHERE `+notSA+` AND last_seen_at > ?`, []any{activeUserDeadline}); err != nil {
+			return err
+		}
+		result.ActiveUsers = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("user")+` WHERE `+notSA+` AND last_seen_at > ?`, []any{dailyActiveUserDeadline}); err != nil {
+			return err
+		}
+		result.DailyActiveUsers = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("user")+` WHERE `+notSA+` AND last_seen_at > ?`, []any{monthlyActiveUserDeadline}); err != nil {
+			return err
+		}
+		result.MonthlyActiveUsers = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("dashboard_provisioning"), nil); err != nil {
+			return err
+		}
+		result.ProvisionedDashboards = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("dashboard_snapshot"), nil); err != nil {
+			return err
+		}
+		result.Snapshots = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("dashboard_version"), nil); err != nil {
+			return err
+		}
+		result.DashboardVersions = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("annotation"), nil); err != nil {
+			return err
+		}
+		result.Annotations = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("team"), nil); err != nil {
+			return err
+		}
+		result.Teams = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("user_auth_token"), nil); err != nil {
+			return err
+		}
+		result.AuthTokens = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("alert_rule"), nil); err != nil {
+			return err
+		}
+		result.AlertRules = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("api_key")+` WHERE service_account_id IS NULL`, nil); err != nil {
+			return err
+		}
+		result.APIKeys = c
+		if c, err = runCount(sess, `SELECT COUNT(id) AS c FROM `+dialect.Quote("library_element")+` WHERE kind = ?`, []any{model.PanelElement}); err != nil {
+			return err
+		}
+		result.LibraryPanels = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("data_keys"), nil); err != nil {
+			return err
+		}
+		result.DataKeys = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("data_keys")+` WHERE active = true`, nil); err != nil {
+			return err
+		}
+		result.ActiveDataKeys = c
+		if c, err = runCount(sess, `SELECT COUNT(*) AS c FROM `+dialect.Quote("dashboard_public"), nil); err != nil {
+			return err
+		}
+		result.PublicDashboards = c
+		// Use raw QueryRowContext + Scan into time.Time to avoid xorm Get() reflect panic
+		// (xorm's mapType calls Interface() on driver values; time.Time has unexported fields).
+		minTimestampSQL := `SELECT MIN(timestamp) AS c FROM ` + dialect.Quote("migration_log")
+		var dbCreated time.Time
+		switch err := sess.DB().QueryRowContext(ctx, minTimestampSQL).Scan(&dbCreated); {
+		case err == sql.ErrNoRows:
+			// no row
+		case err != nil:
+			return err
+		case !dbCreated.IsZero():
+			result.DatabaseCreatedTime = &dbCreated
+		}
+		if ss.IsUnifiedAlertingEnabled() {
+			if c, err = runCount(sess, `SELECT COUNT(DISTINCT `+dialect.Quote("rule_group")+`) AS c FROM `+dialect.Quote("alert_rule"), nil); err != nil {
+				return err
+			}
+			result.RuleGroups = c
+		}
+		// Role counts from cache (same as roleCounterSQL)
+		_ = ss.updateUserRoleCountsIfNecessary(ctx, false)
+		result.Admins = userStatsCache.total.Admins
+		result.Editors = userStatsCache.total.Editors
+		result.Viewers = userStatsCache.total.Viewers
+		result.ActiveAdmins = userStatsCache.active.Admins
+		result.ActiveEditors = userStatsCache.active.Editors
+		result.ActiveViewers = userStatsCache.active.Viewers
+		result.DailyActiveAdmins = userStatsCache.dailyActive.Admins
+		result.DailyActiveEditors = userStatsCache.dailyActive.Editors
+		result.DailyActiveViewers = userStatsCache.dailyActive.Viewers
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (ss *sqlStatsService) roleCounterSQL(ctx context.Context) string {
