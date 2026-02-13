@@ -169,6 +169,12 @@ func (s *Service) DBMigration(db db.DB) {
 				SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = true
 				ON CONFLICT(uid, org_id) DO UPDATE SET title=excluded.title, updated=excluded.updated
 			`)
+		} else if db.GetDialect().DriverName() == migrator.YDB {
+			// covered by UQE_folder_org_id_uid
+			_, err = sess.Exec(`
+				UPSERT INTO folder (uid, org_id, title, created, updated)
+				SELECT COALESCE(uid, ""), org_id, title, created, updated FROM dashboard WHERE is_folder LIMIT 1000000000000000		
+			`)
 		} else {
 			// covered by UQE_folder_org_id_uid
 			_, err = sess.Exec(`
@@ -183,10 +189,18 @@ func (s *Service) DBMigration(db db.DB) {
 
 		if deleteOldFolders {
 			// covered by UQE_folder_org_id_uid
-			_, err = sess.Exec(`
+			q := `
 			DELETE FROM folder WHERE NOT EXISTS
 				(SELECT 1 FROM dashboard WHERE dashboard.uid = folder.uid AND dashboard.org_id = folder.org_id AND dashboard.is_folder = true)
-		`)
+			`
+
+			if db.GetDialect().DriverName() == migrator.YDB {
+				q = `
+				DELETE FROM folder ON
+    				SELECT folder.id AS id FROM folder JOIN dashboard ON dashboard.uid = folder.uid 
+        				WHERE dashboard.org_id = folder.org_id AND dashboard.is_folder = true`
+			}
+			_, err = sess.Exec(q)
 		}
 		return err
 	})
@@ -781,17 +795,23 @@ func (s *Service) UpdateLegacy(ctx context.Context, cmd *folder.UpdateFolderComm
 			return err
 		}
 
-		if foldr, err = s.store.Update(ctx, folder.UpdateFolderCommand{
+		foldr, err = s.store.Update(ctx, folder.UpdateFolderCommand{
 			UID:            cmd.UID,
 			OrgID:          cmd.OrgID,
 			NewTitle:       &dashFolder.Title,
 			NewDescription: cmd.NewDescription,
 			SignedInUser:   user,
-		}); err != nil {
-			return err
+		})
+		if err != nil {
+			// Legacy folder: exists in dashboard but not in folder table; treat as success and use dashboard result
+			if errors.Is(err, folder.ErrFolderNotFound) {
+				foldr = dashFolder
+			} else {
+				return err
+			}
 		}
 
-		if cmd.NewTitle != nil {
+		if cmd.NewTitle != nil && foldr != nil {
 			metrics.MFolderIDsServiceCount.WithLabelValues(metrics.Folder).Inc()
 
 			if err := s.publishFolderFullPathUpdatedEvent(ctx, foldr.Updated, cmd.OrgID, cmd.UID); err != nil {

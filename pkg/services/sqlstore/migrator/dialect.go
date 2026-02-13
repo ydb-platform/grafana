@@ -123,6 +123,7 @@ var supportedDialects = map[string]dialectFunc{
 	MySQL + "WithHooks":    NewMysqlDialect,
 	SQLite + "WithHooks":   NewSQLite3Dialect,
 	Postgres + "WithHooks": NewPostgresDialect,
+	YDB:                    NewYDBDialect,
 }
 
 func NewDialect(driverName string) Dialect {

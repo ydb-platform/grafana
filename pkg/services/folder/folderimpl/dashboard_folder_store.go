@@ -2,6 +2,7 @@ package folderimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -133,6 +134,22 @@ func (d *DashboardFolderStoreImpl) Get(ctx context.Context, q folder.GetFolderQu
 
 	foldr.Fullpath = strings.TrimLeft(foldr.Fullpath, "/")
 	foldr.FullpathUIDs = strings.TrimLeft(foldr.FullpathUIDs, "/")
+	// Fallback: folder table may lack rows for legacy folders (created before folder table or sync); look up in dashboard only
+	if err != nil && errors.Is(err, dashboards.ErrFolderNotFound) {
+		if q.UID != nil && *q.UID != "" {
+			f, fallbackErr := d.GetFolderByUID(ctx, q.OrgID, *q.UID)
+			if fallbackErr == nil {
+				return f.WithURL(), nil
+			}
+		}
+		// nolint:staticcheck
+		if q.ID != nil && *q.ID != 0 {
+			f, fallbackErr := d.GetFolderByID(ctx, q.OrgID, *q.ID)
+			if fallbackErr == nil {
+				return f.WithURL(), nil
+			}
+		}
+	}
 	return foldr.WithURL(), err
 }
 

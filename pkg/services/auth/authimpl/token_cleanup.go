@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana/pkg/infra/db"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
 func (s *UserAuthTokenService) Run(ctx context.Context) error {
@@ -78,7 +79,13 @@ func (s *UserAuthTokenService) deleteOrphanedExternalSessions(ctx context.Contex
 
 	var affected int64
 	err := s.sqlStore.WithDbSession(ctx, func(dbSession *db.Session) error {
-		sql := `DELETE FROM user_external_session WHERE NOT EXISTS (SELECT 1 FROM user_auth_token WHERE user_external_session.id = user_auth_token.external_session_id)`
+		// YDB: NOT EXISTS with correlated reference to outer table (user_external_session) causes "Member not found"
+		var sql string
+		if s.sqlStore.GetDialect().DriverName() == migrator.YDB {
+			sql = `DELETE FROM user_external_session WHERE id IN (SELECT ues.id FROM user_external_session ues LEFT JOIN user_auth_token uat ON ues.id = uat.external_session_id WHERE uat.external_session_id IS NULL)`
+		} else {
+			sql = `DELETE FROM user_external_session WHERE NOT EXISTS (SELECT 1 FROM user_auth_token WHERE user_external_session.id = user_auth_token.external_session_id)`
+		}
 
 		res, err := dbSession.Exec(sql)
 		if err != nil {
