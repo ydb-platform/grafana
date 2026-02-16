@@ -19,17 +19,6 @@ import (
 	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
-// type ydbDriver struct {
-// }
-
-// func (p *ydbDriver) Parse(driverName, dataSourceName string) (*core.Uri, error) {
-// 	// if strings.Contains(dataSourceName, "?") {
-// 	// 	dataSourceName = dataSourceName[:strings.Index(dataSourceName, "?")]
-// 	// }
-
-// 	return &core.Uri{DbType: core.YDB, DbName: dataSourceName}, nil
-// }
-
 // from https://github.com/ydb-platform/ydb/blob/main/ydb/library/yql/sql/v1/SQLv1.g.in#L1117
 var (
 	ydbReservedWords = map[string]bool{
@@ -261,12 +250,6 @@ var (
 		"TRUE":              true,
 		"FALSE":             true,
 	}
-
-	// ydbQuoter = core.Quoter{
-	// 	Prefix:     '`',
-	// 	Suffix:     '`',
-	// 	IsReserved: core.AlwaysReserve,
-	// }
 )
 
 const (
@@ -699,22 +682,12 @@ func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
 	// Convert time.Duration to int64
 	if duration, ok := nv.Value.(time.Duration); ok {
 		nv.Value = int64(duration)
-		// if nv.Name == "created_at" {
-		// 	nv.Value = int32(duration)
-		// }
 	}
 
 	rv := reflect.ValueOf(nv.Value)
 	if rv.Kind() == reflect.Int {
 		nv.Value = rv.Int()
 	}
-
-	// Handle nil time values
-	// if nv.Value == nil && nv.Ordinal == 10 {
-	// 	var nilTime *time.Time
-	// 	nv.Value = nilTime
-	// 	return nil
-	// }
 
 	// Delegate to underlying connector if it implements NamedValueChecker
 	if checker, ok := w.conn.(driver.NamedValueChecker); ok {
@@ -1189,8 +1162,6 @@ func (db *ydbDialect) CreateTableSql(table *core.Table, tableName, storeEngine, 
 // https://pkg.go.dev/database/sql#ColumnType.DatabaseTypeName
 func (db *ydbDialect) ColumnTypeKind(t string) int {
 	switch t {
-	// case "BOOL":
-	// 	return core.BOOL_TYPE
 	case "INT8", "INT16", "INT32", "INT64", "UINT8", "UINT16", "UINT32", "UINT64":
 		return core.NUMERIC_TYPE
 	case "UTF8":

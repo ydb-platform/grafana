@@ -7,10 +7,6 @@ import (
 // YDB is an implementation of Dialect for the YDB DMBS.
 var YDB = ydb{}
 
-// var (
-// 	ErrydbUnsupportedIdent = errors.New("identifiers in ydb cannot contain the character with code zero")
-// )
-
 type ydb struct{}
 
 func (p ydb) DialectName() string {

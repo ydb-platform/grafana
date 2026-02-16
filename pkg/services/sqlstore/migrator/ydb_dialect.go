@@ -322,26 +322,13 @@ func (db *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []
 		return "", fmt.Errorf("upsert statement must have count >= 1. Got %v", count)
 	}
 	columnsStr := strings.Builder{}
-	onConflictStr := strings.Builder{}
-	setStr := strings.Builder{}
-
 	const separator = ", "
 	separatorVar := separator
 	for i, c := range updateCols {
 		if i == len(updateCols)-1 {
 			separatorVar = ""
 		}
-
 		columnsStr.WriteString(fmt.Sprintf("%s%s", db.Quote(c), separatorVar))
-		setStr.WriteString(fmt.Sprintf("%s=EXCLUDED.%s%s", db.Quote(c), db.Quote(c), separatorVar))
-	}
-
-	separatorVar = separator
-	for i, c := range keyCols {
-		if i == len(keyCols)-1 {
-			separatorVar = ""
-		}
-		onConflictStr.WriteString(fmt.Sprintf("%s%s", db.Quote(c), separatorVar))
 	}
 
 	valuesStr := strings.Builder{}
@@ -372,49 +359,10 @@ func (db *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []
 		tableName,
 		columnsStr.String(),
 		valuesStr.String(),
-		// onConflictStr.String(),
-		// setStr.String(),
 	)
 
 	return s, nil
 }
-
-// func (db *YDBDialect) Lock(cfg LockCfg) error {
-// 	// trying to obtain the lock for a resource identified by a 64-bit or 32-bit key value
-// 	// the lock is exclusive: multiple lock requests stack, so that if the same resource is locked three times
-// 	// it must then be unlocked three times to be released for other sessions' use.
-// 	// it will either obtain the lock immediately and return true,
-// 	// or return false if the lock cannot be acquired immediately.
-// 	query := "SELECT pg_try_advisory_lock(?)"
-// 	var success bool
-
-// 	_, err := cfg.Session.SQL(query, cfg.Key).Get(&success)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if !success {
-// 		return ErrLockDB
-// 	}
-
-// 	return nil
-// }
-
-// func (db *YDBDialect) Unlock(cfg LockCfg) error {
-// 	// trying to release a previously-acquired exclusive session level advisory lock.
-// 	// it will either return true if the lock is successfully released or
-// 	// false if the lock was not held (in addition an SQL warning will be reported by the server)
-// 	query := "SELECT pg_advisory_unlock(?)"
-// 	var success bool
-
-// 	_, err := cfg.Session.SQL(query, cfg.Key).Get(&success)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if !success {
-// 		return ErrReleaseLockDB
-// 	}
-// 	return nil
-// }
 
 func (db *YDBDialect) GetDBName(dsn string) (string, error) {
 	uri, err := url.Parse(dsn)
