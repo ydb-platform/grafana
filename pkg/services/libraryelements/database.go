@@ -45,7 +45,7 @@ func getSelectLibraryElementDTOWithMeta(dialect migrator.Dialect) string {
 	if dialect.DriverName() == migrator.YDB {
 		return `
 SELECT DISTINCT
-	le.name, le.id, le.org_id, le.folder_id, le.uid, le.kind, le.type, le.description, le.model, le.created, le.created_by, le.updated, le.updated_by, le.version
+	le.name AS name, le.id, le.org_id, le.folder_id, le.uid, le.kind, le.type, le.description, le.model, le.created, le.created_by, le.updated, le.updated_by, le.version
 	, u1.login AS created_by_name
 	, u1.email AS created_by_email
 	, u2.login AS updated_by_name
@@ -521,12 +521,12 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		if err := folderFilter.writeFolderFilterSQL(false, &builder); err != nil {
 			return err
 		}
-		// YDB does not allow ORDER BY constant (e.g. ORDER BY 1); use first column name
+		// YDB: after UNION we need an explicit column alias; getSelectLibraryElementDTOWithMeta uses "le.name AS name" for YDB so ORDER BY name is valid.
 		if dialect.DriverName() == migrator.YDB {
 			if query.SortDirection == sort.SortAlphaDesc.Name {
-				builder.Write(" ORDER BY le.name DESC")
+				builder.Write(" ORDER BY name DESC")
 			} else {
-				builder.Write(" ORDER BY le.name ASC")
+				builder.Write(" ORDER BY name ASC")
 			}
 		} else {
 			if query.SortDirection == sort.SortAlphaDesc.Name {
@@ -777,7 +777,7 @@ func (l *LibraryElementService) getConnectionIDs(c context.Context, signedInUser
 		builder := db.NewSqlBuilder(l.Cfg, l.features, l.SQLStore.GetDialect(), recursiveQueriesAreSupported)
 		builder.Write("SELECT lec.id, lec.element_id, lec.connection_id")
 		builder.Write(" FROM " + model.LibraryElementConnectionTableName + " AS lec ")
-		builder.Write(" INNER JOIN " + model.LibraryElementTableName + " AS le ON le.id = element_id")
+		builder.Write(" INNER JOIN " + model.LibraryElementTableName + " AS le ON le.id = lec.element_id")
 		builder.Write(" WHERE le.org_id=? AND le.uid=?", signedInUser.GetOrgID(), uid)
 		if err := session.SQL(builder.GetSQLString(), builder.GetParams()...).Find(&libraryElementConnections); err != nil {
 			return err

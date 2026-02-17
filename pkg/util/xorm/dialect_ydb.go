@@ -6,9 +6,11 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -383,12 +385,357 @@ type ydbConnWrapper struct {
 }
 
 // ydbStmtWrapper wraps driver.Stmt to convert time.Duration arguments to int64
+// inArgMap maps original positional args to rewritten args (collapsing IN (?,?,...) into one list arg).
+type inArgMap struct {
+	// segments: in order of placeholders in the rewritten query; each is either one original index or a range to collapse into a list
+	segments []inArgSegment
+}
+
+type inArgSegment struct {
+	singleIdx       int   // if listCount == 0: use args[singleIdx]
+	listStart       int   // if listCount > 0: use args[listStart:listStart+listCount] as one list arg
+	listCount       int
+}
+
+const inClauseCollapseThreshold = 50 // collapse IN (?,...,?) into IN ? (single list param) when param count >= this
+
+func isSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func isWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
+// rewriteQueryInClauses finds large " IN ($k,...,$m)" or " IN (?,...,?)" and replaces with " IN $k" / " IN ?" (single list param).
+func rewriteQueryInClauses(query string) (newQuery string, argMap *inArgMap) {
+	// Quick rejection: avoid full scan if query cannot contain " IN (...)"
+	if !strings.Contains(query, " IN ") && !strings.Contains(query, "IN(") {
+		return query, nil
+	}
+	if strings.Contains(query, "$") {
+		if rewritten, m := rewriteQueryInClausesNumeric(query); m != nil {
+			return rewritten, m
+		}
+	}
+	return rewriteQueryInClausesQuestion(query)
+}
+
+// rewriteQueryInClausesNumeric finds " IN ($k,$k+1,...,$m)" with consecutive ordinals and count >= threshold.
+func rewriteQueryInClausesNumeric(query string) (newQuery string, argMap *inArgMap) {
+	i := 0
+	for i < len(query) {
+		j := i
+		for j < len(query) && isSpace(query[j]) { j++ }
+		// Match "IN" (word boundary) then optional whitespace then "(" (so " IN (", " IN\n(", "IN(")
+		if j+2 <= len(query) && (j == 0 || !isWordChar(query[j-1])) && strings.EqualFold(query[j:j+2], "in") {
+			k := j + 2
+			for k < len(query) && isSpace(query[k]) { k++ }
+			if k < len(query) && query[k] == '(' {
+				parenStart := k
+				parenEnd := findMatchingParen(query, parenStart)
+				if parenEnd > parenStart {
+					segment := query[parenStart+1 : parenEnd]
+					firstNum, count := parseNumericPlaceholderList(segment)
+					if count >= inClauseCollapseThreshold && firstNum >= 1 {
+						// Replace IN ($k,...,$k+count-1) with IN $k (single list param)
+						before := query[:j]
+						afterOrig := query[parenEnd+1:]
+						// Max ordinal: only scan "after" part, not the long IN list
+						lastInList := firstNum + count - 1
+						maxAfter := countNumericPlaceholders(afterOrig)
+						maxOrd := lastInList
+						if maxAfter > maxOrd {
+							maxOrd = maxAfter
+						}
+						after := renumberPlaceholdersAfter(afterOrig, lastInList, -(count - 1))
+						newQuery = before + "IN $" + strconv.Itoa(firstNum) + after
+						segments := make([]inArgSegment, 0, maxOrd-count+2)
+						for a := 0; a < firstNum-1; a++ {
+							segments = append(segments, inArgSegment{singleIdx: a})
+						}
+						segments = append(segments, inArgSegment{listStart: firstNum - 1, listCount: count})
+						for a := firstNum + count - 1; a < maxOrd; a++ {
+							segments = append(segments, inArgSegment{singleIdx: a})
+						}
+						return newQuery, &inArgMap{segments: segments}
+					}
+					// Skip past this IN (...) so we don't re-scan it
+					i = parenEnd
+				}
+			}
+		}
+		i++
+	}
+	return query, nil
+}
+
+// parseNumericPlaceholderList parses "$n,$n+1,$n+2,..." (with optional newlines/spaces between) and returns (firstNum, count). Returns (0,0) if not consecutive. No slice allocation.
+func parseNumericPlaceholderList(segment string) (firstNum int, count int) {
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return 0, 0
+	}
+	segment = strings.TrimLeft(segment, " \t\n\r,")
+	if segment == "" || segment[0] != '$' {
+		return 0, 0
+	}
+	end := 1
+	for end < len(segment) && segment[end] >= '0' && segment[end] <= '9' {
+		end++
+	}
+	if end == 1 {
+		return 0, 0
+	}
+	firstNum, _ = strconv.Atoi(segment[1:end])
+	count = 1
+	segment = segment[end:]
+	for len(segment) > 0 {
+		segment = strings.TrimLeft(segment, " \t\n\r,")
+		if len(segment) == 0 {
+			break
+		}
+		if segment[0] != '$' {
+			return 0, 0
+		}
+		end = 1
+		for end < len(segment) && segment[end] >= '0' && segment[end] <= '9' {
+			end++
+		}
+		if end == 1 {
+			return 0, 0
+		}
+		n, _ := strconv.Atoi(segment[1:end])
+		if n != firstNum+count {
+			return 0, 0
+		}
+		count++
+		segment = segment[end:]
+	}
+	return firstNum, count
+}
+
+// countNumericPlaceholders returns the highest $n ordinal in the query (number of args).
+func countNumericPlaceholders(query string) int {
+	max := 0
+	i := 0
+	for i < len(query) {
+		if query[i] == '$' && i+1 < len(query) && query[i+1] >= '0' && query[i+1] <= '9' {
+			j := i + 1
+			for j < len(query) && query[j] >= '0' && query[j] <= '9' {
+				j++
+			}
+			n, _ := strconv.Atoi(query[i+1 : j])
+			if n > max {
+				max = n
+			}
+			i = j
+			continue
+		}
+		i++
+	}
+	return max
+}
+
+// renumberPlaceholdersAfter rewrites $m in s to $(m+delta) for every m > threshold.
+func renumberPlaceholdersAfter(s string, threshold int, delta int) string {
+	var buf strings.Builder
+	buf.Grow(len(s)) // output length <= input when delta <= 0
+	i := 0
+	for i < len(s) {
+		if s[i] == '$' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9' {
+			j := i + 1
+			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				j++
+			}
+			n, _ := strconv.Atoi(s[i+1 : j])
+			if n > threshold {
+				buf.WriteByte('$')
+				buf.WriteString(strconv.Itoa(n + delta))
+			} else {
+				buf.WriteString(s[i:j])
+			}
+			i = j
+			continue
+		}
+		buf.WriteByte(s[i])
+		i++
+	}
+	return buf.String()
+}
+
+// rewriteQueryInClausesQuestion finds " IN (?, ?, ..., ?)" with >= threshold placeholders.
+func rewriteQueryInClausesQuestion(query string) (newQuery string, argMap *inArgMap) {
+	var segments []inArgSegment
+	var buf strings.Builder
+	argIdx := 0
+	i := 0
+	for i < len(query) {
+		if (i == 0 || !isWordChar(query[i-1])) && i+4 <= len(query) {
+			j := i
+			for j < len(query) && isSpace(query[j]) { j++ }
+			if j+4 <= len(query) && strings.EqualFold(query[j:j+4], "in (") {
+				parenStart := j + 3
+				parenEnd := findMatchingParen(query, parenStart)
+				if parenEnd > parenStart {
+					inCount := countPlaceholders(query[parenStart+1 : parenEnd])
+					if inCount >= inClauseCollapseThreshold {
+						buf.WriteString(query[i:j])
+						buf.WriteString("IN ?")
+						segments = append(segments, inArgSegment{listStart: argIdx, listCount: inCount})
+						argIdx += inCount
+						i = parenEnd + 1
+						continue
+					}
+				}
+			}
+		}
+		if query[i] == '?' {
+			buf.WriteByte('?')
+			segments = append(segments, inArgSegment{singleIdx: argIdx})
+			argIdx++
+			i++
+			continue
+		}
+		buf.WriteByte(query[i])
+		i++
+	}
+	if len(segments) == 0 || segmentsEqualQuery(segments, argIdx) {
+		return query, nil
+	}
+	return buf.String(), &inArgMap{segments: segments}
+}
+
+func findMatchingParen(s string, open int) int {
+	depth := 1
+	for i := open + 1; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func countPlaceholders(segment string) int {
+	n := 0
+	for _, r := range segment {
+		if r == '?' {
+			n++
+		}
+	}
+	return n
+}
+
+// segmentsEqualQuery returns true if the segments just represent 1:1 mapping (no list collapse)
+func segmentsEqualQuery(segments []inArgSegment, totalArgs int) bool {
+	if len(segments) != totalArgs {
+		return false
+	}
+	for i, s := range segments {
+		if s.listCount != 0 || s.singleIdx != i {
+			return false
+		}
+	}
+	return true
+}
+
+// collapsedCount returns total number of original args that were collapsed into list(s) (for logging).
+func (m *inArgMap) collapsedCount() int {
+	n := 0
+	for _, seg := range m.segments {
+		if seg.listCount > 0 {
+			n += seg.listCount
+		}
+	}
+	return n
+}
+
+func (m *inArgMap) applyNamed(args []driver.NamedValue) ([]driver.NamedValue, error) {
+	out := make([]driver.NamedValue, 0, len(m.segments))
+	for ord, seg := range m.segments {
+		if seg.listCount > 0 {
+			list := make([]interface{}, 0, seg.listCount)
+			end := seg.listStart + seg.listCount
+			if end > len(args) {
+				return nil, fmt.Errorf("IN clause arg map: need args[%d:%d], have %d", seg.listStart, end, len(args))
+			}
+			for j := seg.listStart; j < end; j++ {
+				list = append(list, args[j].Value)
+			}
+			out = append(out, driver.NamedValue{Ordinal: ord + 1, Value: list})
+		} else {
+			if seg.singleIdx >= len(args) {
+				return nil, fmt.Errorf("IN clause arg map: need args[%d], have %d", seg.singleIdx, len(args))
+			}
+			nm := args[seg.singleIdx]
+			nm.Ordinal = ord + 1
+			out = append(out, nm)
+		}
+	}
+	return out, nil
+}
+
+func (m *inArgMap) applyValues(args []driver.Value) ([]driver.Value, error) {
+	out := make([]driver.Value, 0, len(m.segments))
+	for _, seg := range m.segments {
+		if seg.listCount > 0 {
+			list := make([]interface{}, 0, seg.listCount)
+			end := seg.listStart + seg.listCount
+			if end > len(args) {
+				return nil, fmt.Errorf("IN clause arg map: need args[%d:%d], have %d", seg.listStart, end, len(args))
+			}
+			for j := seg.listStart; j < end; j++ {
+				list = append(list, args[j])
+			}
+			out = append(out, list)
+		} else {
+			if seg.singleIdx >= len(args) {
+				return nil, fmt.Errorf("IN clause arg map: need args[%d], have %d", seg.singleIdx, len(args))
+			}
+			out = append(out, args[seg.singleIdx])
+		}
+	}
+	return out, nil
+}
+
 type ydbStmtWrapper struct {
-	stmt  driver.Stmt
-	query string
+	stmt   driver.Stmt
+	query  string
+	inArgs *inArgMap
 }
 
 const ydbCostBasedOptimizationPragma = `PRAGMA ydb.CostBasedOptimization = "on";` + "\n"
+
+// shouldUseCostBasedOptimization returns true for "heavy" queries that typically benefit from
+// ydb.CostBasedOptimization (dashboard/folder list with permission subqueries). Returns false for
+// simple lookups where the pragma often produces worse plans.
+func shouldUseCostBasedOptimization(query string) bool {
+	q := strings.ToUpper(query)
+	hasPermission := strings.Contains(q, "PERMISSION")
+	hasDashboardOrFolder := strings.Contains(q, "DASHBOARD") || strings.Contains(q, "FOLDER")
+	hasOrderOrLimit := strings.Contains(q, "ORDER BY") || strings.Contains(q, "LIMIT")
+	// Heavy pattern: permission + dashboard/folder + ordering/limit (dashboard search, folder list)
+	if hasPermission && hasDashboardOrFolder && hasOrderOrLimit {
+		return true
+	}
+	// Multiple nested IN (SELECT ...) — complex permission/folder chain
+	inSelectCount := 0
+	for i := 0; i < len(q)-10; i++ {
+		if strings.HasPrefix(q[i:], "IN (SELECT") {
+			inSelectCount++
+			if inSelectCount >= 2 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func prependYdbPragma(query string) string {
 	trimmed := strings.TrimSpace(query)
@@ -399,6 +746,16 @@ func prependYdbPragma(query string) string {
 		return query
 	}
 	return ydbCostBasedOptimizationPragma + query
+}
+
+// ydbILIKEToLowerLikeRe matches "column ILIKE $param" (column may be table.col) for rewrite to LOWER(...) LIKE LOWER(...).
+var ydbILIKEToLowerLikeRe = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)\s+ILIKE\s+(\$[a-zA-Z0-9]+)`)
+
+func rewriteILIKEToLowerLike(query string) string {
+	if !strings.Contains(query, "ILIKE") {
+		return query
+	}
+	return ydbILIKEToLowerLikeRe.ReplaceAllString(query, "LOWER($1) LIKE LOWER($2)")
 }
 
 // migration todo:
@@ -699,23 +1056,38 @@ func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
 
 // Prepare implements driver.Conn interface
 func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
-	// query = prependYdbPragma(query)
-	stmt, err := w.conn.Prepare(query)
+	rewritten, inArgs := rewriteQueryInClauses(query)
+	if inArgs != nil {
+		log.Printf("[YDB] IN clause rewritten: %d params collapsed to single list", inArgs.collapsedCount())
+	}
+	// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin; use native ILIKE
+	if shouldUseCostBasedOptimization(rewritten) {
+		rewritten = prependYdbPragma(rewritten)
+	}
+	stmt, err := w.conn.Prepare(rewritten)
 	if err != nil {
 		return nil, err
 	}
-	return &ydbStmtWrapper{stmt: stmt, query: query}, nil
+	return &ydbStmtWrapper{stmt: stmt, query: query, inArgs: inArgs}, nil
 }
 
 // PrepareContext implements driver.ConnPrepareContext interface
 func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	if connCtx, ok := w.conn.(driver.ConnPrepareContext); ok {
-		// query = prependYdbPragma(query)
-		stmt, err := connCtx.PrepareContext(ctx, query)
+		rewritten, inArgs := rewriteQueryInClauses(query)
+		if inArgs != nil {
+			// Log so operator can confirm IN collapse is applied (xorm [SQL] log shows original query)
+			log.Printf("[YDB] IN clause rewritten: %d params collapsed to single list", inArgs.collapsedCount())
+		}
+		// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin
+		if shouldUseCostBasedOptimization(rewritten) {
+			rewritten = prependYdbPragma(rewritten)
+		}
+		stmt, err := connCtx.PrepareContext(ctx, rewritten)
 		if err != nil {
 			return nil, err
 		}
-		return &ydbStmtWrapper{stmt: stmt, query: query}, nil
+		return &ydbStmtWrapper{stmt: stmt, query: query, inArgs: inArgs}, nil
 	}
 	return w.Prepare(query)
 }
@@ -845,6 +1217,13 @@ func (w *rowsWrapper) Columns() []string {
 // QueryContext intercepts query execution and converts time.Duration to int64
 func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
 	args = convertArgs(args)
+	if w.inArgs != nil {
+		var err error
+		args, err = w.inArgs.applyNamed(args)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Handle special case for LIMIT clause
 	if strings.HasSuffix(w.query, "LIMIT $3;\n") {
@@ -857,86 +1236,105 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 		}
 	}
 
-	// Execute with retry loop: one INSERT/UPDATE can have multiple Int32 columns (version, updated_by, etc.)
-	if stmtCtx, ok := w.stmt.(driver.StmtQueryContext); ok {
-		const maxInt32Retries = 20
+	var resultRows driver.Rows
+	err := retry.Retry(ctx, func(ctx context.Context) (err error) {
+		if stmtCtx, ok := w.stmt.(driver.StmtQueryContext); ok {
+			const maxInt32Retries = 20
+			currentArgs := args
+			for attempt := 0; attempt < maxInt32Retries; attempt++ {
+				rows, err := stmtCtx.QueryContext(ctx, currentArgs)
+				if err == nil {
+					resultRows = &rowsWrapper{Rows: rows}
+					return nil
+				}
+				if !isInt64ToInt32ConversionError(err) {
+					return err
+				}
+				fieldName := extractFieldNameFromError(err)
+				currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
+			}
+			return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+		}
 		currentArgs := args
+		const maxInt32Retries = 20
 		for attempt := 0; attempt < maxInt32Retries; attempt++ {
-			rows, err := stmtCtx.QueryContext(ctx, currentArgs)
+			values := make([]driver.Value, len(currentArgs))
+			for i, arg := range currentArgs {
+				values[i] = arg.Value
+			}
+			rows, err := w.stmt.Query(values)
 			if err == nil {
-				return &rowsWrapper{Rows: rows}, nil
+				resultRows = rows
+				return nil
 			}
 			if !isInt64ToInt32ConversionError(err) {
-				return nil, err
+				return err
 			}
 			fieldName := extractFieldNameFromError(err)
 			currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 		}
-		return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	// Fallback to non-context query with retry loop
-	currentArgs := args
-	const maxInt32Retries = 20
-	for attempt := 0; attempt < maxInt32Retries; attempt++ {
-		values := make([]driver.Value, len(currentArgs))
-		for i, arg := range currentArgs {
-			values[i] = arg.Value
-		}
-		rows, err := w.stmt.Query(values)
-		if err == nil {
-			return rows, nil
-		}
-		if !isInt64ToInt32ConversionError(err) {
-			return nil, err
-		}
-		fieldName := extractFieldNameFromError(err)
-		currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
-	}
-	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	return resultRows, nil
 }
 
 // ExecContext intercepts exec execution and converts time.Duration to int64
 func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
 	args = convertArgs(args)
+	if w.inArgs != nil {
+		var err error
+		args, err = w.inArgs.applyNamed(args)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	// Execute with retry loop: one INSERT/UPDATE can have multiple Int32 columns
-	if stmtCtx, ok := w.stmt.(driver.StmtExecContext); ok {
-		const maxInt32Retries = 20
+	var result driver.Result
+	err := retry.Retry(ctx, func(ctx context.Context) (err error) {
+		if stmtCtx, ok := w.stmt.(driver.StmtExecContext); ok {
+			const maxInt32Retries = 20
+			currentArgs := args
+			for attempt := 0; attempt < maxInt32Retries; attempt++ {
+				res, err := stmtCtx.ExecContext(ctx, currentArgs)
+				if err == nil {
+					result = res
+					return nil
+				}
+				if !isInt64ToInt32ConversionError(err) {
+					return err
+				}
+				fieldName := extractFieldNameFromError(err)
+				currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
+			}
+			return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+		}
 		currentArgs := args
+		const maxInt32Retries = 20
 		for attempt := 0; attempt < maxInt32Retries; attempt++ {
-			result, err := stmtCtx.ExecContext(ctx, currentArgs)
+			values := make([]driver.Value, len(currentArgs))
+			for i, arg := range currentArgs {
+				values[i] = arg.Value
+			}
+			res, err := w.stmt.Exec(values)
 			if err == nil {
-				return result, nil
+				result = res
+				return nil
 			}
 			if !isInt64ToInt32ConversionError(err) {
-				return nil, err
+				return err
 			}
 			fieldName := extractFieldNameFromError(err)
 			currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 		}
-		return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	// Fallback to non-context exec with retry loop
-	currentArgs := args
-	const maxInt32Retries = 20
-	for attempt := 0; attempt < maxInt32Retries; attempt++ {
-		values := make([]driver.Value, len(currentArgs))
-		for i, arg := range currentArgs {
-			values[i] = arg.Value
-		}
-		result, err := w.stmt.Exec(values)
-		if err == nil {
-			return result, nil
-		}
-		if !isInt64ToInt32ConversionError(err) {
-			return nil, err
-		}
-		fieldName := extractFieldNameFromError(err)
-		currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
-	}
-	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	return result, nil
 }
 
 // Close closes the underlying statement
@@ -952,53 +1350,85 @@ func (w *ydbStmtWrapper) NumInput() int {
 // Exec implements driver.Stmt interface
 func (w *ydbStmtWrapper) Exec(args []driver.Value) (driver.Result, error) {
 	currentValues := args
-	const maxInt32Retries = 20
-	for attempt := 0; attempt < maxInt32Retries; attempt++ {
-		result, err := w.stmt.Exec(currentValues)
-		if err == nil {
-			return result, nil
-		}
-		if !isInt64ToInt32ConversionError(err) {
+	if w.inArgs != nil {
+		var err error
+		currentValues, err = w.inArgs.applyValues(args)
+		if err != nil {
 			return nil, err
 		}
-		fieldName := extractFieldNameFromError(err)
-		namedArgs := make([]driver.NamedValue, len(currentValues))
-		for i, val := range currentValues {
-			namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
-		}
-		convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
-		currentValues = make([]driver.Value, len(convertedArgs))
-		for i, arg := range convertedArgs {
-			currentValues[i] = arg.Value
-		}
 	}
-	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	var result driver.Result
+	err := retry.Retry(context.Background(), func(ctx context.Context) (err error) {
+		values := currentValues
+		const maxInt32Retries = 20
+		for attempt := 0; attempt < maxInt32Retries; attempt++ {
+			res, err := w.stmt.Exec(values)
+			if err == nil {
+				result = res
+				return nil
+			}
+			if !isInt64ToInt32ConversionError(err) {
+				return err
+			}
+			fieldName := extractFieldNameFromError(err)
+			namedArgs := make([]driver.NamedValue, len(values))
+			for i, val := range values {
+				namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
+			}
+			convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
+			values = make([]driver.Value, len(convertedArgs))
+			for i, arg := range convertedArgs {
+				values[i] = arg.Value
+			}
+		}
+		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Query implements driver.Stmt interface
 func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
 	currentValues := args
-	const maxInt32Retries = 20
-	for attempt := 0; attempt < maxInt32Retries; attempt++ {
-		rows, err := w.stmt.Query(currentValues)
-		if err == nil {
-			return rows, nil
-		}
-		if !isInt64ToInt32ConversionError(err) {
+	if w.inArgs != nil {
+		var err error
+		currentValues, err = w.inArgs.applyValues(args)
+		if err != nil {
 			return nil, err
 		}
-		fieldName := extractFieldNameFromError(err)
-		namedArgs := make([]driver.NamedValue, len(currentValues))
-		for i, val := range currentValues {
-			namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
-		}
-		convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
-		currentValues = make([]driver.Value, len(convertedArgs))
-		for i, arg := range convertedArgs {
-			currentValues[i] = arg.Value
-		}
 	}
-	return nil, fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	var resultRows driver.Rows
+	err := retry.Retry(context.Background(), func(ctx context.Context) (err error) {
+		values := currentValues
+		const maxInt32Retries = 20
+		for attempt := 0; attempt < maxInt32Retries; attempt++ {
+			rows, err := w.stmt.Query(values)
+			if err == nil {
+				resultRows = rows
+				return nil
+			}
+			if !isInt64ToInt32ConversionError(err) {
+				return err
+			}
+			fieldName := extractFieldNameFromError(err)
+			namedArgs := make([]driver.NamedValue, len(values))
+			for i, val := range values {
+				namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
+			}
+			convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
+			values = make([]driver.Value, len(convertedArgs))
+			for i, arg := range convertedArgs {
+				values[i] = arg.Value
+			}
+		}
+		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resultRows, nil
 }
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {

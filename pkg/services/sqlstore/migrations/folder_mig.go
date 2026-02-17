@@ -51,7 +51,11 @@ func addFolderMigrations(mg *migrator.Migrator) {
 			ON CONFLICT DO UPDATE SET title=excluded.title, updated=excluded.updated
 		`).YDB(`
 			UPSERT INTO folder (uid, org_id, title, created, updated)
-			SELECT COALESCE(uid, ""), org_id, title, created, updated FROM dashboard WHERE is_folder LIMIT 1000000000000000
+			SELECT g.folder_uid, g.org_id, g.title, g.created, g.updated FROM (
+				SELECT folder_uid, org_id, MAX(title) AS title, MAX(created) AS created, MAX(updated) AS updated
+				FROM dashboard WHERE is_folder
+				GROUP BY COALESCE(uid, "") AS folder_uid, org_id
+			) AS g
 		`))
 
 	mg.AddMigration("Remove ghost folders from the folder table", migrator.NewRawSQLMigration(`
