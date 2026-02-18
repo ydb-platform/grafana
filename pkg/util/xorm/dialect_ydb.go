@@ -1533,7 +1533,7 @@ func (db *ydbDialect) IsTableExist(
 }
 
 func (db *ydbDialect) TableCheckSql(tableName string) (string, []any) {
-	return "SELECT Path FROM `.sys/partition_stats` where Path LIKE '%/' || $1", []any{tableName}
+	return "SELECT Path FROM `.sys/partition_stats` WHERE Path LIKE '%/' || $1", []any{tableName}
 }
 
 func (db *ydbDialect) AutoIncrStr() string {
