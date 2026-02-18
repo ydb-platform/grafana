@@ -631,6 +631,13 @@ require (
 	sigs.k8s.io/yaml v1.5.0 // indirect
 )
 
+require (
+	github.com/ydb-platform/ydb-go-sdk/v3 v3.126.4
+	github.com/ydb-platform/ydb-go-yc-metadata v0.6.1
+)
+
+require github.com/ydb-platform/ydb-go-genproto v0.0.0-20251125145508-6d7ef87db5cb // indirect
+
 // Use fork of crewjam/saml with fixes for some issues until changes get merged into upstream
 replace github.com/crewjam/saml => github.com/grafana/saml v0.4.15-0.20240917091248-ae3bbdad8a56
 

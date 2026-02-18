@@ -329,18 +329,18 @@ func (ss *sqlStore) GetSignedInUser(ctx context.Context, query *user.GetSignedIn
 		org.id                as org_id,
 		u.is_service_account  as is_service_account
 		FROM ` + ss.dialect.Quote("user") + ` as u
-		LEFT OUTER JOIN org_user on org_user.org_id = ` + orgId + ` and org_user.user_id = u.id
+		LEFT OUTER JOIN org_user on org_user.user_id = u.id
 		LEFT OUTER JOIN org on org.id = org_user.org_id `
 
 		sess := dbSess.Table("user")
 		sess = sess.Context(ctx)
 		switch {
 		case query.UserID > 0:
-			sess.SQL(rawSQL+"WHERE u.id=?", query.UserID)
+			sess.SQL(rawSQL+"WHERE org_user.org_id = "+orgId+" and u.id=?", query.UserID)
 		case query.Login != "":
-			sess.SQL(rawSQL+"WHERE LOWER(u.login)=LOWER(?)", query.Login)
+			sess.SQL(rawSQL+"WHERE org_user.org_id = "+orgId+" LOWER(u.login)=LOWER(?)", query.Login)
 		case query.Email != "":
-			sess.SQL(rawSQL+"WHERE LOWER(u.email)=LOWER(?)", query.Email)
+			sess.SQL(rawSQL+"WHERE org_user.org_id = "+orgId+" LOWER(u.email)=LOWER(?)", query.Email)
 		default:
 			return user.ErrNoUniqueID
 		}
@@ -482,13 +482,16 @@ func (ss *sqlStore) Search(ctx context.Context, query *user.SearchUsersQuery) (*
 		whereConditions = append(whereConditions, "u.is_service_account = ?")
 		whereParams = append(whereParams, ss.dialect.BooleanValue(false))
 
-		// Join with only most recent auth module
+		// Join with only most recent auth module (YDB does not support scalar subquery in JOIN ON)
 		joinCondition := `(
 		SELECT id from user_auth
 			WHERE user_auth.user_id = u.id
 			ORDER BY user_auth.created DESC `
 		joinCondition = "user_auth.id=" + joinCondition + ss.dialect.Limit(1) + ")"
-		sess.Join("LEFT", "user_auth", joinCondition)
+		isYDB := ss.dialect.DriverName() == migrator.YDB
+		if !isYDB {
+			sess.Join("LEFT", "user_auth", joinCondition)
+		}
 		if query.OrgID > 0 {
 			whereConditions = append(whereConditions, "org_id = ?")
 			whereParams = append(whereParams, query.OrgID)
@@ -516,7 +519,11 @@ func (ss *sqlStore) Search(ctx context.Context, query *user.SearchUsersQuery) (*
 		}
 
 		if query.AuthModule != "" {
-			whereConditions = append(whereConditions, `auth_module=?`)
+			if isYDB {
+				whereConditions = append(whereConditions, "u.id IN (SELECT user_id FROM user_auth WHERE auth_module = ?)")
+			} else {
+				whereConditions = append(whereConditions, `auth_module=?`)
+			}
 			whereParams = append(whereParams, query.AuthModule)
 		}
 
@@ -541,7 +548,11 @@ func (ss *sqlStore) Search(ctx context.Context, query *user.SearchUsersQuery) (*
 			sess.Limit(query.Limit, offset)
 		}
 
-		sess.Cols("u.id", "u.uid", "u.email", "u.name", "u.login", "u.is_admin", "u.is_disabled", "u.last_seen_at", "user_auth.auth_module", "u.is_provisioned")
+		if isYDB {
+			sess.Cols("u.id", "u.uid", "u.email", "u.name", "u.login", "u.is_admin", "u.is_disabled", "u.last_seen_at", "u.is_provisioned")
+		} else {
+			sess.Cols("u.id", "u.uid", "u.email", "u.name", "u.login", "u.is_admin", "u.is_disabled", "u.last_seen_at", "user_auth.auth_module", "u.is_provisioned")
+		}
 
 		if len(query.SortOpts) > 0 {
 			for i := range query.SortOpts {
@@ -557,12 +568,46 @@ func (ss *sqlStore) Search(ctx context.Context, query *user.SearchUsersQuery) (*
 			return err
 		}
 
+		// YDB: fill auth_module from separate query (latest per user)
+		if isYDB && len(result.Users) > 0 {
+			userIDs := make([]int64, 0, len(result.Users))
+			for _, u := range result.Users {
+				userIDs = append(userIDs, u.ID)
+			}
+			type authRow struct {
+				UserID    int64  `xorm:"user_id"`
+				AuthModule string `xorm:"auth_module"`
+			}
+			var authRows []authRow
+			placeholders := strings.Repeat("?,", len(userIDs))
+			placeholders = placeholders[:len(placeholders)-1]
+			args := make([]any, 0, len(userIDs))
+			for _, id := range userIDs {
+				args = append(args, id)
+			}
+			// ORDER BY created DESC so first row per user_id is the latest
+			if err := dbSess.SQL("SELECT user_id, auth_module FROM user_auth WHERE user_id IN ("+placeholders+") ORDER BY created DESC", args...).Find(&authRows); err != nil {
+				return err
+			}
+			authByUser := make(map[int64]string)
+			for _, r := range authRows {
+				if _, ok := authByUser[r.UserID]; !ok {
+					authByUser[r.UserID] = r.AuthModule
+				}
+			}
+			for i := range result.Users {
+				if auth, ok := authByUser[result.Users[i].ID]; ok {
+					result.Users[i].AuthModule = user.AuthModuleConversion{auth}
+				}
+			}
+		}
+
 		// get total
 		user := user.User{}
 		countSess := dbSess.Table("user").Alias("u")
 
 		// Join with user_auth table if users filtered by auth_module
-		if query.AuthModule != "" {
+		if query.AuthModule != "" && !isYDB {
 			countSess.Join("LEFT", "user_auth", joinCondition)
 		}
 

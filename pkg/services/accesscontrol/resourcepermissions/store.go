@@ -12,6 +12,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/org"
 	"github.com/grafana/grafana/pkg/services/serviceaccounts"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/services/team"
 	"github.com/grafana/grafana/pkg/services/user"
 	"github.com/grafana/grafana/pkg/setting"
@@ -373,18 +374,40 @@ func (s *store) getResourcePermissions(sess *db.Session, orgID int64, query GetR
 	FROM permission p
 		INNER JOIN role r ON p.role_id = r.id
     `
-	userFrom := rawFrom + `
-		INNER JOIN user_role ur ON r.id = ur.role_id AND (ur.org_id = 0 OR ur.org_id = ?)
-		INNER JOIN ` + s.sql.GetDialect().Quote("user") + ` u ON ur.user_id = u.id
+	dialect := s.sql.GetDialect()
+	userQuote := dialect.Quote("user")
+	// YDB: JOIN ON must be only equality predicates; move (x.org_id = 0 OR x.org_id = ?) to WHERE
+	isYDB := dialect.DriverName() == migrator.YDB
+	var userFrom, teamFrom, builtinFrom string
+	var userWhereSuffix, teamWhereSuffix, builtinWhereSuffix string
+	if isYDB {
+		userFrom = rawFrom + `
+		INNER JOIN user_role ur ON r.id = ur.role_id
+		INNER JOIN ` + userQuote + ` u ON ur.user_id = u.id
 	`
-	teamFrom := rawFrom + `
+		teamFrom = rawFrom + `
+		INNER JOIN team_role tr ON r.id = tr.role_id
+		INNER JOIN team t ON tr.team_id = t.id
+	`
+		builtinFrom = rawFrom + `
+		INNER JOIN builtin_role br ON r.id = br.role_id
+	`
+		userWhereSuffix = ` AND (ur.org_id = 0 OR ur.org_id = ?)`
+		teamWhereSuffix = ` AND (tr.org_id = 0 OR tr.org_id = ?)`
+		builtinWhereSuffix = ` AND (br.org_id = 0 OR br.org_id = ?)`
+	} else {
+		userFrom = rawFrom + `
+		INNER JOIN user_role ur ON r.id = ur.role_id AND (ur.org_id = 0 OR ur.org_id = ?)
+		INNER JOIN ` + userQuote + ` u ON ur.user_id = u.id
+	`
+		teamFrom = rawFrom + `
 		INNER JOIN team_role tr ON r.id = tr.role_id AND (tr.org_id = 0 OR tr.org_id = ?)
 		INNER JOIN team t ON tr.team_id = t.id
 	`
-
-	builtinFrom := rawFrom + `
+		builtinFrom = rawFrom + `
 		INNER JOIN builtin_role br ON r.id = br.role_id AND (br.org_id = 0 OR br.org_id = ?)
 	`
+	}
 
 	where := `WHERE (r.org_id = ? OR r.org_id = 0) AND (p.scope = '*' OR p.scope = ? OR p.scope = ? OR p.scope = ?`
 
@@ -416,7 +439,23 @@ func (s *store) getResourcePermissions(sess *db.Session, orgID int64, query GetR
 	}
 
 	initialLength := len(args)
-	userQuery := userSelect + userFrom + where
+	// YDB: WHERE order is (r.org_id=?), scope, scope, scope, actions, (ur.org_id=?). Initial args are (ur.org_id), (r.org_id), scope..., so reorder to match.
+	initialArgs := make([]any, initialLength)
+	copy(initialArgs, args)
+	reorderArgsForYDBPart := func(a []any) []any {
+		if len(a) < 2 {
+			return a
+		}
+		out := make([]any, 0, len(a))
+		out = append(out, a[0])
+		out = append(out, a[2:]...)
+		out = append(out, a[1])
+		return out
+	}
+	if isYDB {
+		args = reorderArgsForYDBPart(args)
+	}
+	userQuery := userSelect + userFrom + where + userWhereSuffix
 	if query.EnforceAccessControl {
 		userFilter, err := accesscontrol.Filter(query.User, "u.id", "users:id:", accesscontrol.ActionOrgUsersRead)
 		if err != nil {
@@ -442,12 +481,20 @@ func (s *store) getResourcePermissions(sess *db.Session, orgID int64, query GetR
 		return nil, err
 	}
 
-	team := teamSelect + teamFrom + where + " AND " + teamFilter.Where
-	args = append(args, args[:initialLength]...)
+	team := teamSelect + teamFrom + where + teamWhereSuffix + " AND " + teamFilter.Where
+	if isYDB {
+		args = append(args, reorderArgsForYDBPart(initialArgs)...)
+	} else {
+		args = append(args, args[:initialLength]...)
+	}
 	args = append(args, teamFilter.Args...)
 
-	builtin := builtinSelect + builtinFrom + where
-	args = append(args, args[:initialLength]...)
+	builtin := builtinSelect + builtinFrom + where + builtinWhereSuffix
+	if isYDB {
+		args = append(args, reorderArgsForYDBPart(initialArgs)...)
+	} else {
+		args = append(args, args[:initialLength]...)
+	}
 
 	sql := userQuery + " " + s.sql.GetDialect().UnionDistinct() + " " + team + " " + s.sql.GetDialect().UnionDistinct() + " " + builtin
 	queryResults := make([]flatResourcePermission, 0)

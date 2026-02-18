@@ -109,7 +109,14 @@ func authorizeDashboard(ctx context.Context, ac accesscontrol.AccessControl, use
 			return authorizer.DecisionDeny, "can not create any dashboards", err
 		}
 	case "get":
-		ok, err := ac.Evaluate(ctx, user, accesscontrol.EvalPermission(dashboards.ActionDashboardsRead, dashboards.ScopeDashboardsProvider.GetResourceScopeUID(attr.GetName())))
+		scope := dashboards.ScopeDashboardsProvider.GetResourceScopeUID(attr.GetName())
+		// Allow view if user has read, write, or admin on this dashboard (creator gets admin; action-set expansion may not run yet)
+		ok, err := ac.Evaluate(ctx, user, accesscontrol.EvalAny(
+			accesscontrol.EvalPermission(dashboards.ActionDashboardsRead, scope),
+			accesscontrol.EvalPermission(dashboards.ActionDashboardsWrite, scope),
+			accesscontrol.EvalPermission(dashboards.ActionDashboardsPermissionsRead, scope),
+			accesscontrol.EvalPermission(dashboards.ActionDashboardsPermissionsWrite, scope),
+		))
 		if !ok || err != nil {
 			return authorizer.DecisionDeny, "can not view dashboard", err
 		}

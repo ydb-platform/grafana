@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	batchSize = 500
+	batchSize = 100
 )
 
 type permissionMigrator struct {

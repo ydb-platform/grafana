@@ -48,6 +48,8 @@ func GetTestDB(dbType string) (*TestDB, error) {
 		return postgresTestDB()
 	case "sqlite3":
 		return sqLite3TestDB()
+	case "ydb":
+		return ydbTestDB()
 	}
 
 	return nil, fmt.Errorf("unknown test db type: %s", dbType)
@@ -164,6 +166,17 @@ func postgresTestDB() (*TestDB, error) {
 		User:       "grafanatest",
 		Password:   "grafanatest",
 		Database:   "grafanatest",
+		Cleanup:    func() {},
+	}, nil
+}
+
+func ydbTestDB() (*TestDB, error) {
+	return &TestDB{
+		DriverName: "ydb",
+		ConnStr:    "grpc://127.0.0.1:2136/local?go_query_mode=query&go_fake_tx=query&go_query_bind=numeric",
+		Host:       "127.0.0.1",
+		Port:       "2136",
+		Database:   "/local",
 		Cleanup:    func() {},
 	}, nil
 }
