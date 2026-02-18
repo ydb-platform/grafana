@@ -575,7 +575,7 @@ func (ss *sqlStore) Search(ctx context.Context, query *user.SearchUsersQuery) (*
 				userIDs = append(userIDs, u.ID)
 			}
 			type authRow struct {
-				UserID    int64  `xorm:"user_id"`
+				UserID     int64  `xorm:"user_id"`
 				AuthModule string `xorm:"auth_module"`
 			}
 			var authRows []authRow

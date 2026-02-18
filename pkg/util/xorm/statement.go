@@ -350,7 +350,7 @@ func (statement *Statement) buildUpdates(bean any,
 		if fieldType.Kind() == reflect.Ptr {
 			if fieldValue.IsNil() {
 				if includeNil {
-var nilValue any
+					var nilValue any
 
 					sqlType := statement.Engine.dialect.SqlType(col)
 					if sqlType == yql_Utf8 {
