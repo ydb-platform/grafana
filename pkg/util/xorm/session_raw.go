@@ -14,6 +14,8 @@ import (
 )
 
 func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
+	session.engine.logger.Debugf("[queryPreprocess] source sql: %q, params: %+v", *sqlStr, paramStr)
+
 	args := paramStr
 	for _, filter := range session.engine.dialect.Filters() {
 		*sqlStr, args = filter.Do(*sqlStr, session.engine.dialect, session.statement.RefTable, args...)
@@ -21,6 +23,8 @@ func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
 
 	session.lastSQL = *sqlStr
 	session.lastSQLArgs = args
+
+	session.engine.logger.Debugf("[queryPreprocess] replaced sql: %q, params: %+v", *sqlStr, args)
 }
 
 func (session *Session) queryRows(sqlStr string, args ...any) (*core.Rows, error) {
