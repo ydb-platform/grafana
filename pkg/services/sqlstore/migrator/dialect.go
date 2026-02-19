@@ -108,6 +108,12 @@ type Dialect interface {
 	Concat(...string) string
 }
 
+type DialectRecursiveCTE interface {
+	Dialect
+
+	RecursiveQueriesAreSupported() (bool, error)
+}
+
 type LockCfg struct {
 	Session *xorm.Session
 	Key     string
