@@ -22,6 +22,24 @@ import (
 	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
+func init() {
+	ydb.RegisterDsnParser(func(dsn string) (opts []ydb.Option, _ error) {
+		uri, err := url.Parse(dsn)
+		if err != nil {
+			return opts, nil
+		}
+
+		if ycAuth := uri.Query().Get("yc_auth"); ycAuth == "metadata_credentials" {
+			opts = append(opts,
+				ydb.WithCredentials(yc.NewInstanceServiceAccount()),
+				yc.WithInternalCA(),
+			)
+		}
+
+		return opts, nil
+	})
+}
+
 // from https://github.com/ydb-platform/ydb/blob/main/ydb/library/yql/sql/v1/SQLv1.g.in#L1117
 var (
 	ydbReservedWords = map[string]bool{
@@ -1373,12 +1391,9 @@ func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
 }
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
-	ydbDriver, err := ydb.Open(context.Background(), dataSource,
-		yc.WithInternalCA(),
-		// yc.WithCredentials(),
-	)
+	ydbDriver, err := ydb.Unwrap(d.DB)
 	if err != nil {
-		return fmt.Errorf("failed to connect by data source name '%s': %w", dataSource, err)
+		return fmt.Errorf("unwrapping ydb driver: %w", err)
 	}
 
 	connector, err := ydb.Connector(ydbDriver,
