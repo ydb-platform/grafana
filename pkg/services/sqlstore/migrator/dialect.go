@@ -75,6 +75,12 @@ type Dialect interface {
 	GetDBName(string) (string, error)
 }
 
+type DialectRecursiveCTE interface {
+	Dialect
+
+	RecursiveQueriesAreSupported() (bool, error)
+}
+
 type LockCfg struct {
 	Session *xorm.Session
 	Key     string

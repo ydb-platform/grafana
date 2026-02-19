@@ -17,8 +17,14 @@ import (
 	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
+var _ DialectRecursiveCTE = (*YDBDialect)(nil)
+
 type YDBDialect struct {
 	BaseDialect
+}
+
+func (d *YDBDialect) RecursiveQueriesAreSupported() (bool, error) {
+	return false, nil
 }
 
 func NewYDBDialect() Dialect {
@@ -28,24 +34,24 @@ func NewYDBDialect() Dialect {
 	return &d
 }
 
-func (db *YDBDialect) IndexCheckSQL(tableName, indexName string) (string, []any) {
+func (d *YDBDialect) IndexCheckSQL(tableName, indexName string) (string, []any) {
 	return "SELECT Path FROM `.sys/partition_stats` where Path LIKE '%/'" +
 		" || $1 || '/' || $2 || '/indexImplTable'", []any{tableName, indexName}
 }
 
-func (db *YDBDialect) SupportEngine() bool {
+func (d *YDBDialect) SupportEngine() bool {
 	return false
 }
 
-func (db *YDBDialect) Quote(name string) string {
+func (d *YDBDialect) Quote(name string) string {
 	return "`" + name + "`"
 }
 
-func (db *YDBDialect) Concat(strs ...string) string {
+func (d *YDBDialect) Concat(strs ...string) string {
 	return strings.Join(strs, " || ")
 }
 
-func (db *YDBDialect) LikeOperator(column string, wildcardBefore bool, pattern string, wildcardAfter bool) (string, string) {
+func (d *YDBDialect) LikeOperator(column string, wildcardBefore bool, pattern string, wildcardAfter bool) (string, string) {
 	param := pattern
 	if wildcardBefore {
 		param = "%" + param
@@ -56,23 +62,23 @@ func (db *YDBDialect) LikeOperator(column string, wildcardBefore bool, pattern s
 	return fmt.Sprintf("%s ILIKE ?", column), param
 }
 
-func (db *YDBDialect) AutoIncrStr() string {
+func (d *YDBDialect) AutoIncrStr() string {
 	return ""
 }
 
-func (db *YDBDialect) BooleanValue(value bool) any {
+func (d *YDBDialect) BooleanValue(value bool) any {
 	return value
 }
 
-func (db *YDBDialect) BooleanStr(value bool) string {
+func (d *YDBDialect) BooleanStr(value bool) string {
 	return strconv.FormatBool(value)
 }
 
-func (db *YDBDialect) BatchSize() int {
+func (d *YDBDialect) BatchSize() int {
 	return 1000
 }
 
-func (db *YDBDialect) SQLType(c *Column) string {
+func (d *YDBDialect) SQLType(c *Column) string {
 	xormDialect := core.QueryDialect(core.YDB)
 	column := &core.Column{
 		SQLType: core.SQLType{
@@ -86,50 +92,50 @@ func (db *YDBDialect) SQLType(c *Column) string {
 	return xormDialect.SqlType(column)
 }
 
-func (b *YDBDialect) AddColumnSQL(tableName string, col *Column) string {
+func (d *YDBDialect) AddColumnSQL(tableName string, col *Column) string {
 	col.Nullable = true // Cannot add not null column without default value
 	col.Default = ""    // Column addition with default value is not supported now
 
-	return b.BaseDialect.AddColumnSQL(tableName, col)
+	return d.BaseDialect.AddColumnSQL(tableName, col)
 }
 
-func (b *YDBDialect) RenameColumn(table Table, column *Column, newName string) string {
+func (d *YDBDialect) RenameColumn(table Table, column *Column, newName string) string {
 	oldName := column.Name
 	column.Name = newName
-	sql := b.AddColumnSQL(table.Name, column) + ";"
+	sql := d.AddColumnSQL(table.Name, column) + ";"
 	if !column.IsPrimaryKey {
 		column.Name = oldName
-		sql += b.DropColumn(table, column)
+		sql += d.DropColumn(table, column)
 	}
 
 	return sql
 }
 
 // TODO:
-func (b *YDBDialect) ColumnCheckSQL(tableName, columnName string) (string, []any) {
+func (d *YDBDialect) ColumnCheckSQL(tableName, columnName string) (string, []any) {
 	return "", nil
 }
 
-func (b *YDBDialect) DropColumn(table Table, column *Column) string {
-	return fmt.Sprintf("alter table %s DROP COLUMN %s", b.dialect.Quote(table.Name), b.dialect.Quote(column.Name))
+func (d *YDBDialect) DropColumn(table Table, column *Column) string {
+	return fmt.Sprintf("alter table %s DROP COLUMN %s", d.dialect.Quote(table.Name), d.dialect.Quote(column.Name))
 }
 
-func (db *YDBDialect) DropIndexSQL(tableName string, index *Index) string {
-	return fmt.Sprintf("alter table %s DROP INDEX %s", db.dialect.Quote(tableName), db.dialect.Quote(index.XName(tableName)))
+func (d *YDBDialect) DropIndexSQL(tableName string, index *Index) string {
+	return fmt.Sprintf("alter table %s DROP INDEX %s", d.dialect.Quote(tableName), d.dialect.Quote(index.XName(tableName)))
 }
 
-func (db *YDBDialect) UpdateTableSQL(tableName string, columns []*Column) string {
+func (d *YDBDialect) UpdateTableSQL(tableName string, columns []*Column) string {
 	return ""
 	statements := []string{}
 
 	for _, col := range columns {
-		statements = append(statements, "ALTER "+db.Quote(col.Name)+" TYPE "+db.SQLType(col))
+		statements = append(statements, "ALTER "+d.Quote(col.Name)+" TYPE "+d.SQLType(col))
 	}
 
-	return "ALTER TABLE " + db.Quote(tableName) + " " + strings.Join(statements, ", ") + ";"
+	return "ALTER TABLE " + d.Quote(tableName) + " " + strings.Join(statements, ", ") + ";"
 }
 
-func (db *YDBDialect) CleanDB(engine *xorm.Engine) error {
+func (d *YDBDialect) CleanDB(engine *xorm.Engine) error {
 	sess := engine.NewSession()
 	defer sess.Close()
 
@@ -144,14 +150,14 @@ func (db *YDBDialect) CleanDB(engine *xorm.Engine) error {
 	return nil
 }
 
-func (b *YDBDialect) Default(col *Column) string {
+func (d *YDBDialect) Default(col *Column) string {
 	if col.Type == DB_Bool {
 		// Ensure that all dialects support the same literals in the same way.
 		bl, err := strconv.ParseBool(col.Default)
 		if err != nil {
 			panic(fmt.Errorf("failed to create default value for column '%s': invalid boolean default value '%s'", col.Name, col.Default))
 		}
-		return b.dialect.BooleanStr(bl)
+		return d.dialect.BooleanStr(bl)
 	}
 
 	if col.Type == DB_NVarchar {
@@ -161,21 +167,21 @@ func (b *YDBDialect) Default(col *Column) string {
 	return col.Default
 }
 
-func (b *YDBDialect) ColStringNoPk(col *Column) string {
-	sql := b.dialect.Quote(col.Name) + " "
+func (d *YDBDialect) ColStringNoPk(col *Column) string {
+	sql := d.dialect.Quote(col.Name) + " "
 
-	sql += b.dialect.SQLType(col) + " NULL " // TODO: remove always NULL when done with add not null columns
+	sql += d.dialect.SQLType(col) + " NULL " // TODO: remove always NULL when done with add not null columns
 
 	if col.Default != "" {
-		sql += "DEFAULT " + b.dialect.Default(col) + " "
+		sql += "DEFAULT " + d.dialect.Default(col) + " "
 	}
 
 	return sql
 }
 
-func (b *YDBDialect) CreateTableSQL(table *Table) string {
+func (d *YDBDialect) CreateTableSQL(table *Table) string {
 	sql := "CREATE TABLE IF NOT EXISTS "
-	sql += b.dialect.Quote(table.Name) + " (\n"
+	sql += d.dialect.Quote(table.Name) + " (\n"
 
 	pkList := table.PrimaryKeys
 
@@ -184,14 +190,14 @@ func (b *YDBDialect) CreateTableSQL(table *Table) string {
 			pkList = []string{col.Name}
 		}
 
-		sql += col.StringNoPk(b.dialect)
+		sql += col.StringNoPk(d.dialect)
 		sql = strings.TrimSpace(sql)
 		sql += "\n, "
 	}
 
 	quotedCols := []string{}
 	for _, col := range pkList {
-		quotedCols = append(quotedCols, b.dialect.Quote(col))
+		quotedCols = append(quotedCols, d.dialect.Quote(col))
 	}
 
 	sql += "PRIMARY KEY ( " + strings.Join(quotedCols, ",") + " ), "
@@ -204,7 +210,7 @@ func (b *YDBDialect) CreateTableSQL(table *Table) string {
 
 // TruncateDBTables truncates all the tables.
 // A special case is the dashboard_acl table where we keep the default permissions.
-func (db *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
+func (d *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 	tables, err := engine.Dialect().GetTables()
 	if err != nil {
 		return err
@@ -212,7 +218,7 @@ func (db *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 	sess := engine.NewSession()
 	defer sess.Close()
 
-	dbName, err := db.GetDBName(engine.DataSourceName())
+	dbName, err := d.GetDBName(engine.DataSourceName())
 	if err != nil {
 		return err
 	}
@@ -225,19 +231,19 @@ func (db *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 			continue
 		case "dashboard_acl":
 			// keep default dashboard permissions
-			if _, err := sess.Exec(fmt.Sprintf("DELETE FROM %v WHERE dashboard_id != -1 AND org_id != -1;", db.Quote(table.Name))); err != nil {
+			if _, err := sess.Exec(fmt.Sprintf("DELETE FROM %v WHERE dashboard_id != -1 AND org_id != -1;", d.Quote(table.Name))); err != nil {
 				return fmt.Errorf("failed to truncate table %q: %w", table.Name, err)
 			}
-			if _, err := sess.Exec(fmt.Sprintf("ALTER SEQUENCE %v RESTART WITH 3;", db.Quote(fmt.Sprintf("%s/%v/_serial_column_id", dbName, table.Name)))); err != nil {
+			if _, err := sess.Exec(fmt.Sprintf("ALTER SEQUENCE %v RESTART WITH 3;", d.Quote(fmt.Sprintf("%s/%v/_serial_column_id", dbName, table.Name)))); err != nil {
 				return fmt.Errorf("failed to reset table %q: %w", table.Name, err)
 			}
 		default:
 			err := retry.Do(context.Background(), engine.DB().DB, func(ctx context.Context, cc *sql.Conn) error {
-				_, err := sess.Exec(fmt.Sprintf("DELETE FROM %v;", db.Quote(table.Name)))
+				_, err := sess.Exec(fmt.Sprintf("DELETE FROM %v;", d.Quote(table.Name)))
 				return err
 			})
 			if err != nil {
-				if db.isUndefinedTable(err) {
+				if d.isUndefinedTable(err) {
 					continue
 				}
 				return fmt.Errorf("failed to truncate table %q: %w", table.Name, err)
@@ -251,7 +257,7 @@ func (db *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 			for _, column := range tableCols {
 				if column.IsAutoIncrement {
 					sequenceName := fmt.Sprintf("%v/%v/_serial_column_%v", dbName, table.Name, column.Name)
-					if _, err := sess.Exec(fmt.Sprintf("ALTER SEQUENCE %v RESTART;", db.Quote(sequenceName))); err != nil {
+					if _, err := sess.Exec(fmt.Sprintf("ALTER SEQUENCE %v RESTART;", d.Quote(sequenceName))); err != nil {
 						return fmt.Errorf("failed to reset sequence %q: %w", sequenceName, err)
 					}
 				}
@@ -262,7 +268,7 @@ func (db *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 	return nil
 }
 
-func (db *YDBDialect) isThisError(err error, errcode string) bool {
+func (d *YDBDialect) isThisError(err error, errcode string) bool {
 	var driverErr *pq.Error
 	if errors.As(err, &driverErr) {
 		if string(driverErr.Code) == errcode {
@@ -273,7 +279,7 @@ func (db *YDBDialect) isThisError(err error, errcode string) bool {
 	return false
 }
 
-func (db *YDBDialect) ErrorMessage(err error) string {
+func (d *YDBDialect) ErrorMessage(err error) string {
 	var driverErr *pq.Error
 	if errors.As(err, &driverErr) {
 		return driverErr.Message
@@ -281,25 +287,25 @@ func (db *YDBDialect) ErrorMessage(err error) string {
 	return ""
 }
 
-func (db *YDBDialect) isUndefinedTable(err error) bool {
+func (d *YDBDialect) isUndefinedTable(err error) bool {
 	return ydb.IsOperationErrorSchemeError(err)
 }
 
-func (db *YDBDialect) IsUniqueConstraintViolation(err error) bool {
-	return db.isThisError(err, "23505")
+func (d *YDBDialect) IsUniqueConstraintViolation(err error) bool {
+	return d.isThisError(err, "23505")
 }
 
-func (db *YDBDialect) IsDeadlock(err error) bool {
-	return db.isThisError(err, "40P01")
+func (d *YDBDialect) IsDeadlock(err error) bool {
+	return d.isThisError(err, "40P01")
 }
 
-func (db *YDBDialect) CreateIndexSQL(tableName string, index *Index) string {
-	indexName := db.Quote(index.XName(tableName))
-	tableName = db.Quote(tableName)
+func (d *YDBDialect) CreateIndexSQL(tableName string, index *Index) string {
+	indexName := d.Quote(index.XName(tableName))
+	tableName = d.Quote(tableName)
 
 	colsIndex := make([]string, len(index.Cols))
 	for i := 0; i < len(index.Cols); i++ {
-		colsIndex[i] = db.Quote(index.Cols[i])
+		colsIndex[i] = d.Quote(index.Cols[i])
 	}
 
 	indexOn := strings.Join(colsIndex, ",")
@@ -311,13 +317,13 @@ func (db *YDBDialect) CreateIndexSQL(tableName string, index *Index) string {
 }
 
 // UpsertSQL returns the upsert sql statement for PostgreSQL dialect
-func (db *YDBDialect) UpsertSQL(tableName string, keyCols, updateCols []string) string {
-	str, _ := db.UpsertMultipleSQL(tableName, keyCols, updateCols, 1)
+func (d *YDBDialect) UpsertSQL(tableName string, keyCols, updateCols []string) string {
+	str, _ := d.UpsertMultipleSQL(tableName, keyCols, updateCols, 1)
 	return str
 }
 
 // UpsertMultipleSQL returns the upsert sql statement for PostgreSQL dialect
-func (db *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []string, count int) (string, error) {
+func (d *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []string, count int) (string, error) {
 	if count < 1 {
 		return "", fmt.Errorf("upsert statement must have count >= 1. Got %v", count)
 	}
@@ -328,7 +334,7 @@ func (db *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []
 		if i == len(updateCols)-1 {
 			separatorVar = ""
 		}
-		columnsStr.WriteString(fmt.Sprintf("%s%s", db.Quote(c), separatorVar))
+		columnsStr.WriteString(fmt.Sprintf("%s%s", d.Quote(c), separatorVar))
 	}
 
 	valuesStr := strings.Builder{}
@@ -364,7 +370,7 @@ func (db *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []
 	return s, nil
 }
 
-func (db *YDBDialect) GetDBName(dsn string) (string, error) {
+func (d *YDBDialect) GetDBName(dsn string) (string, error) {
 	uri, err := url.Parse(dsn)
 	if err != nil {
 		return "", fmt.Errorf("failed on parse data source %v", dsn)
@@ -377,7 +383,7 @@ func (db *YDBDialect) GetDBName(dsn string) (string, error) {
 // so "dashboard.title" is not in the subquery result and causes "Member not found".
 // We use "title" and the builder must add "dashboard.title AS title" to the subquery
 // SELECT when ordering by title (see searchstore/builder.go).
-func (db *YDBDialect) OrderBy(order string) string {
+func (d *YDBDialect) OrderBy(order string) string {
 	order = strings.ReplaceAll(order, "dashboard.title", "title")
 	return order
 }
