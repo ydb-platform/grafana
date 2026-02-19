@@ -924,12 +924,12 @@ func (d *dashboardStore) GetDashboardTags(ctx context.Context, query *dashboards
 	err := d.store.WithDbSession(ctx, func(dbSession *db.Session) error {
 		sql := `SELECT
 					  COUNT(*) as count,
-dashboard_tag.term
-					FROM dashboard
-					INNER JOIN dashboard_tag on dashboard_tag.dashboard_uid = dashboard.uid
-					WHERE dashboard_tag.org_id=?
-					GROUP BY dashboard_tag.term
-					ORDER BY term`
+					  dashboard_tag.term
+				FROM dashboard
+				INNER JOIN dashboard_tag on dashboard_tag.dashboard_uid = dashboard.uid
+				WHERE dashboard_tag.org_id=?
+				GROUP BY dashboard_tag.term
+				ORDER BY term`
 
 		sess := dbSession.SQL(sql, query.OrgID)
 		err := sess.Find(&queryResult)
