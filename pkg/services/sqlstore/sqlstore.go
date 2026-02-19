@@ -520,8 +520,8 @@ func (ss *SQLStore) GetMigrationLockAttemptTimeout() int {
 }
 
 func (ss *SQLStore) RecursiveQueriesAreSupported() (bool, error) {
-	if ss.Dialect.DriverName() == "ydb" {
-		return false, nil
+	if d, has := ss.Dialect.(migrator.DialectRecursiveCTE); has {
+		return d.RecursiveQueriesAreSupported()
 	}
 	if ss.recursiveQueriesAreSupported != nil {
 		return *ss.recursiveQueriesAreSupported, nil
