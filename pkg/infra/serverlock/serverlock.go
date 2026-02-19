@@ -355,7 +355,12 @@ func (sl *ServerLockService) createLock(ctx context.Context,
 	lockRow *serverLock, dbSession *sqlstore.DBSession,
 ) (*serverLock, error) {
 	affected := int64(1)
-	rawSQL := `INSERT INTO server_lock (operation_uid, last_execution, version) VALUES (?, ?, ?)`
+	rawSQL := ` INTO server_lock (operation_uid, last_execution, version) VALUES (?, ?, ?)`
+	if sl.SQLStore.GetDBType() == migrator.YDB {
+		rawSQL = "UPSERT" + rawSQL
+	} else {
+		rawSQL = "INSERT" + rawSQL
+	}
 	if sl.SQLStore.GetDBType() == migrator.Postgres {
 		rawSQL += ` ON CONFLICT DO NOTHING RETURNING id`
 		var id int64
