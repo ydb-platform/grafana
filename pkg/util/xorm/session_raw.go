@@ -14,12 +14,13 @@ import (
 )
 
 func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
+	args := paramStr
 	for _, filter := range session.engine.dialect.Filters() {
-		*sqlStr = filter.Do(*sqlStr, session.engine.dialect, session.statement.RefTable)
+		*sqlStr, args = filter.Do(*sqlStr, session.engine.dialect, session.statement.RefTable, args...)
 	}
 
 	session.lastSQL = *sqlStr
-	session.lastSQLArgs = paramStr
+	session.lastSQLArgs = args
 }
 
 func (session *Session) queryRows(sqlStr string, args ...any) (*core.Rows, error) {
