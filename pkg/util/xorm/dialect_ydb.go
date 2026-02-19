@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ydb-platform/ydb-go-sdk/v3"
+	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xerrors"
 	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
 	yc "github.com/ydb-platform/ydb-go-yc-metadata"
 
@@ -787,18 +788,6 @@ func rewriteILIKEToLowerLike(query string) string {
 // UPDATE `user` SET version = version_new;
 // ALTER TABLE `user` DROP COLUMN version_new;
 
-// convertArgs converts time.Duration arguments to int64
-func convertArgs(args []driver.NamedValue) []driver.NamedValue {
-	converted := make([]driver.NamedValue, len(args))
-	for i, arg := range args {
-		converted[i] = arg
-		if duration, ok := arg.Value.(time.Duration); ok {
-			converted[i].Value = int64(duration)
-		}
-	}
-	return converted
-}
-
 // parseInsertColumnOrdinal returns the 1-based ordinal of a column in the column list
 // of an INSERT/REPLACE query, or 0 if the query is not recognized or the column is not found.
 // Allows converting arguments without binding to specific table or column names.
@@ -1062,6 +1051,8 @@ func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
 
 // Prepare implements driver.Conn interface
 func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
+	log.Printf("[YDB] Prepare(%q)", query)
+
 	rewritten, inArgs := rewriteQueryInClauses(query)
 	if inArgs != nil {
 		log.Printf("[YDB] IN clause rewritten: %d params collapsed to single list", inArgs.collapsedCount())
@@ -1079,6 +1070,8 @@ func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
 
 // PrepareContext implements driver.ConnPrepareContext interface
 func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	log.Printf("[YDB] PrepareContext(%q)", query)
+
 	if connCtx, ok := w.conn.(driver.ConnPrepareContext); ok {
 		rewritten, inArgs := rewriteQueryInClauses(query)
 		if inArgs != nil {
@@ -1220,9 +1213,24 @@ func (w *rowsWrapper) Columns() []string {
 	return columns
 }
 
+// convertQueryAndArgs converts time.Duration arguments to int64
+func convertQueryAndArgs(query string, args []driver.NamedValue) (string, []driver.NamedValue) {
+	log.Printf("[YDB] convertQueryAndArgs(%q, %+v)", query, args)
+
+	converted := make([]driver.NamedValue, len(args))
+	for i, arg := range args {
+		converted[i] = arg
+		if duration, ok := arg.Value.(time.Duration); ok {
+			converted[i].Value = int64(duration)
+		}
+	}
+	return query, converted
+}
+
 // QueryContext intercepts query execution and converts time.Duration to int64
 func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	args = convertArgs(args)
+	_, args = convertQueryAndArgs(w.query, args)
+
 	if w.inArgs != nil {
 		var err error
 		args, err = w.inArgs.applyNamed(args)
@@ -1289,7 +1297,8 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 
 // ExecContext intercepts exec execution and converts time.Duration to int64
 func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	args = convertArgs(args)
+	_, args = convertQueryAndArgs(w.query, args)
+
 	if w.inArgs != nil {
 		var err error
 		args, err = w.inArgs.applyNamed(args)
@@ -1355,86 +1364,12 @@ func (w *ydbStmtWrapper) NumInput() int {
 
 // Exec implements driver.Stmt interface
 func (w *ydbStmtWrapper) Exec(args []driver.Value) (driver.Result, error) {
-	currentValues := args
-	if w.inArgs != nil {
-		var err error
-		currentValues, err = w.inArgs.applyValues(args)
-		if err != nil {
-			return nil, err
-		}
-	}
-	var result driver.Result
-	err := retry.Retry(context.Background(), func(ctx context.Context) (err error) {
-		values := currentValues
-		const maxInt32Retries = 20
-		for attempt := 0; attempt < maxInt32Retries; attempt++ {
-			res, err := w.stmt.Exec(values)
-			if err == nil {
-				result = res
-				return nil
-			}
-			if !isInt64ToInt32ConversionError(err) {
-				return err
-			}
-			fieldName := extractFieldNameFromError(err)
-			namedArgs := make([]driver.NamedValue, len(values))
-			for i, val := range values {
-				namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
-			}
-			convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
-			values = make([]driver.Value, len(convertedArgs))
-			for i, arg := range convertedArgs {
-				values[i] = arg.Value
-			}
-		}
-		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	return nil, xerrors.WithStackTrace(errors.New("[YDB] Exec not supported, use ExecContext instead"))
 }
 
 // Query implements driver.Stmt interface
 func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
-	currentValues := args
-	if w.inArgs != nil {
-		var err error
-		currentValues, err = w.inArgs.applyValues(args)
-		if err != nil {
-			return nil, err
-		}
-	}
-	var resultRows driver.Rows
-	err := retry.Retry(context.Background(), func(ctx context.Context) (err error) {
-		values := currentValues
-		const maxInt32Retries = 20
-		for attempt := 0; attempt < maxInt32Retries; attempt++ {
-			rows, err := w.stmt.Query(values)
-			if err == nil {
-				resultRows = rows
-				return nil
-			}
-			if !isInt64ToInt32ConversionError(err) {
-				return err
-			}
-			fieldName := extractFieldNameFromError(err)
-			namedArgs := make([]driver.NamedValue, len(values))
-			for i, val := range values {
-				namedArgs[i] = driver.NamedValue{Ordinal: i + 1, Value: val}
-			}
-			convertedArgs := convertInt64ToInt32Args(namedArgs, fieldName, w.query)
-			values = make([]driver.Value, len(convertedArgs))
-			for i, arg := range convertedArgs {
-				values[i] = arg.Value
-			}
-		}
-		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return resultRows, nil
+	return nil, xerrors.WithStackTrace(errors.New("[YDB] Query not supported, use QueryContext instead"))
 }
 
 func (db *ydbDialect) Init(d *core.DB, uri *core.Uri, drivername, dataSource string) error {
@@ -1533,7 +1468,7 @@ func (db *ydbDialect) IsTableExist(
 }
 
 func (db *ydbDialect) TableCheckSql(tableName string) (string, []any) {
-	return "SELECT Path FROM `.sys/partition_stats` where Path LIKE '%/' || $1", []any{tableName}
+	return "SELECT Path FROM `.sys/partition_stats` WHERE Path LIKE '%/' || $1", []any{tableName}
 }
 
 func (db *ydbDialect) AutoIncrStr() string {
