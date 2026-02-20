@@ -457,10 +457,6 @@ type Dialect interface {
 	SetParams(params map[string]string)
 }
 
-type Quoter interface {
-	Quote(string) string
-}
-
 func OpenDialect(dialect Dialect) (*DB, error) {
 	return Open(dialect.DriverName(), dialect.DataSourceName())
 }
@@ -737,160 +733,21 @@ var (
 
 // Filter is an interface to filter SQL
 type Filter interface {
-	Do(sql string, quoter Quoter, table *Table, args ...any) (string, []any)
+	Do(sql string, dialect Dialect, table *Table) string
 }
 
-// inRange describes one "IN (?,...,?)" clause in the SQL (only placeholders, no subquery).
-type inRange struct {
-	start, end int
-	count      int
-	firstQ     int
-}
-
-// findInClauses finds all "IN (?,?,?)" style clauses (no regex): IN, optional space, (, only ? , space, ).
-func findInClauses(sql string) []inRange {
-	var ranges []inRange
-	inString := false
-	var quote byte
-	i := 0
-	for i < len(sql) {
-		c := sql[i]
-		if inString {
-			if c == quote {
-				inString = false
-			} else if c == '\\' && i+1 < len(sql) {
-				i++
-			}
-			i++
-			continue
-		}
-		if c == '\'' || c == '"' {
-			inString = true
-			quote = c
-			i++
-			continue
-		}
-		// Look for IN not preceded by word char
-		if (c == 'I' || c == 'i') && i+2 <= len(sql) && (sql[i+1] == 'N' || sql[i+1] == 'n') && (i == 0 || !isWordByte(sql[i-1])) {
-			start := i
-			i += 2
-			for i < len(sql) && (sql[i] == ' ' || sql[i] == '\t') {
-				i++
-			}
-			if i < len(sql) && sql[i] == '(' {
-				i++
-				count := 0
-				firstQ := -1
-				ok := true
-				for i < len(sql) {
-					b := sql[i]
-					if b == '?' {
-						if firstQ < 0 {
-							firstQ = i
-						}
-						count++
-						i++
-						continue
-					}
-					if b == ' ' || b == '\t' || b == ',' {
-						i++
-						continue
-					}
-					if b == ')' {
-						i++
-						if count > 0 && ok {
-							ranges = append(ranges, inRange{start, i, count, firstQ})
-						}
-						break
-					}
-					ok = false
-					i++
-				}
-				continue
-			}
-		}
-		i++
-	}
-	return ranges
-}
-
-func isWordByte(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
-}
-
-// InClauseFilter filter SQL replace IN (?, ?, ?) to IN ? and many args (1,2,3) replace to single arg []any{1,2,3}
-type InClauseFilter struct{}
-
-func (s *InClauseFilter) Do(sql string, _ Quoter, _ *Table, args ...any) (string, []any) {
-	ranges := findInClauses(sql)
-	if len(ranges) == 0 {
-		return sql, args
-	}
-
-	// Collect all '?' positions in SQL in order (skip ? inside string literals).
-	var qPositions []int
-	inString := false
-	var quote byte
-	for i := 0; i < len(sql); i++ {
-		c := sql[i]
-		if inString {
-			if c == quote {
-				inString = false
-			} else if c == '\\' && i+1 < len(sql) {
-				i++ // skip escaped char
-			}
-			continue
-		}
-		if c == '\'' || c == '"' {
-			inString = true
-			quote = c
-			continue
-		}
-		if c == '?' {
-			qPositions = append(qPositions, i)
-		}
-	}
-
-	// Build new args: for each '?' in order, either append one arg or append one slice and skip next (count-1) args.
-	newArgs := make([]any, 0, len(args))
-	argIdx := 0
-	for _, pos := range qPositions {
-		var in *inRange
-		var isFirst bool
-		for j := range ranges {
-			r := &ranges[j]
-			if pos >= r.start && pos < r.end {
-				in = r
-				isFirst = (pos == r.firstQ)
-				break
-			}
-		}
-		if in != nil && isFirst {
-			newArgs = append(newArgs, append([]any(nil), args[argIdx:argIdx+in.count]...))
-			argIdx += in.count
-		} else if in == nil {
-			newArgs = append(newArgs, args[argIdx])
-			argIdx++
-		}
-	}
-
-	// Replace SQL only when there is exactly one IN clause.
-	outSQL := sql
-	if len(ranges) == 1 {
-		r := ranges[0]
-		outSQL = sql[:r.start] + "IN ?" + sql[r.end:]
-	}
-
-	return outSQL, newArgs
+// FilterWithArgs is an interface to filter SQL with args
+type FilterWithArgs interface {
+	DoWithArgs(sql string, dialect Dialect, table *Table, args ...any) (string, []any)
 }
 
 // QuoteFilter filter SQL replace ` to database's own quote character
 type QuoteFilter struct{}
 
-func (s *QuoteFilter) Do(sql string, quoter Quoter, table *Table, args ...any) (string, []any) {
+func (s *QuoteFilter) Do(sql string, quoter Dialect, table *Table) string {
 	dummy := quoter.Quote("")
 	if len(dummy) != 2 {
-		return sql, args
+		return sql
 	}
 	prefix, suffix := dummy[0], dummy[1]
 	raw := []byte(sql)
@@ -904,19 +761,19 @@ func (s *QuoteFilter) Do(sql string, quoter Quoter, table *Table, args ...any) (
 			cnt++
 		}
 	}
-	return string(raw), args
+	return string(raw)
 }
 
 // IdFilter filter SQL replace (id) to primary key column name
 type IdFilter struct{}
 
-func (i *IdFilter) Do(sql string, quoter Quoter, table *Table, args ...any) (string, []any) {
+func (i *IdFilter) Do(sql string, quoter Dialect, table *Table) string {
 	if table != nil && len(table.PrimaryKeys) == 1 {
 		sql = strings.Replace(sql, " `(id)` ", " "+quoter.Quote(table.PrimaryKeys[0])+" ", -1)
 		sql = strings.Replace(sql, " "+quoter.Quote("(id)")+" ", " "+quoter.Quote(table.PrimaryKeys[0])+" ", -1)
-		return strings.Replace(sql, " (id) ", " "+quoter.Quote(table.PrimaryKeys[0])+" ", -1), args
+		return strings.Replace(sql, " (id) ", " "+quoter.Quote(table.PrimaryKeys[0])+" ", -1)
 	}
-	return sql, args
+	return sql
 }
 
 // SeqFilter filter SQL replace ?, ? ... to $1, $2 ...
@@ -943,8 +800,8 @@ func convertQuestionMark(sql, prefix string, start int) string {
 	return buf.String()
 }
 
-func (s *SeqFilter) Do(sql string, _ Quoter, _ *Table, args ...any) (string, []any) {
-	return convertQuestionMark(sql, s.Prefix, s.Start), args
+func (s *SeqFilter) Do(sql string, _ Dialect, _ *Table) string {
+	return convertQuestionMark(sql, s.Prefix, s.Start)
 }
 
 // LogLevel defines a log level

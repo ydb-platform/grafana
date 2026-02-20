@@ -18,7 +18,11 @@ func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
 
 	args := paramStr
 	for _, filter := range session.engine.dialect.Filters() {
-		*sqlStr, args = filter.Do(*sqlStr, session.engine.dialect, session.statement.RefTable, args...)
+		if filterWithArgs, has := filter.(core.FilterWithArgs); has {
+			*sqlStr, args = filterWithArgs.DoWithArgs(*sqlStr, session.engine.dialect, session.statement.RefTable, args...)
+		} else {
+			*sqlStr = filter.Do(*sqlStr, session.engine.dialect, session.statement.RefTable)
+		}
 	}
 
 	session.lastSQL = *sqlStr
