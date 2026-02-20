@@ -1028,12 +1028,12 @@ func (w *ydbStmtWrapper) NumInput() int {
 }
 
 // Exec implements driver.Stmt interface
-func (w *ydbStmtWrapper) Exec(args []driver.Value) (driver.Result, error) {
+func (w *ydbStmtWrapper) Exec([]driver.Value) (driver.Result, error) {
 	return nil, xerrors.WithStackTrace(errors.New("[YDB] Exec not supported, use ExecContext instead"))
 }
 
 // Query implements driver.Stmt interface
-func (w *ydbStmtWrapper) Query(args []driver.Value) (driver.Rows, error) {
+func (w *ydbStmtWrapper) Query([]driver.Value) (driver.Rows, error) {
 	return nil, xerrors.WithStackTrace(errors.New("[YDB] Query not supported, use QueryContext instead"))
 }
 
@@ -1089,7 +1089,9 @@ func (db *ydbDialect) WithConn(ctx context.Context, f func(context.Context, *sql
 	if err != nil {
 		return err
 	}
-	defer cc.Close()
+	defer func() {
+		_ = cc.Close()
+	}()
 
 	return f(ctx, cc)
 }
