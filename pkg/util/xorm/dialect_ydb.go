@@ -1522,7 +1522,7 @@ func (f *ydbInClauseFilter) findInClauses(sql string) []ydbInRange {
 		if (c == 'I' || c == 'i') && i+2 <= len(sql) && (sql[i+1] == 'N' || sql[i+1] == 'n') && (i == 0 || !f.isWordByte(sql[i-1])) {
 			start := i
 			i += 2
-			for i < len(sql) && (sql[i] == ' ' || sql[i] == '\t') {
+			for i < len(sql) && (sql[i] == ' ' || sql[i] == '\t' || sql[i] == '\n' || sql[i] == '\r') {
 				i++
 			}
 			if i < len(sql) && sql[i] == '(' {
@@ -1540,7 +1540,7 @@ func (f *ydbInClauseFilter) findInClauses(sql string) []ydbInRange {
 						i++
 						continue
 					}
-					if b == ' ' || b == '\t' || b == ',' {
+					if b == ' ' || b == '\t' || b == ',' || b == '\n' || b == '\r' {
 						i++
 						continue
 					}

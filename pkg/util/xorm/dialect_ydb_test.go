@@ -81,7 +81,7 @@ func TestYdbInClauseFilter(t *testing.T) {
 		out  args
 	}{
 		{
-			name: "IN keywork in literal (single quotas)",
+			name: "IN keyword in literal (single quotas)",
 			in: args{
 				sql:  "SELECT ' IN (?,?,?)' WHERE ?, ?, ?",
 				args: []any{1, 2, 3},
@@ -92,7 +92,7 @@ func TestYdbInClauseFilter(t *testing.T) {
 			},
 		},
 		{
-			name: "IN keywork in literal (double quotas)",
+			name: "IN keyword in literal (double quotas)",
 			in: args{
 				sql:  "SELECT \" IN (?,?,?)\" WHERE ?, ?, ?",
 				args: []any{1, 2, 3},
@@ -121,6 +121,21 @@ func TestYdbInClauseFilter(t *testing.T) {
 			},
 			out: args{
 				sql:  "SELECT * FROM tbl WHERE id IN ?",
+				args: []any{[]any{1, 2, 3}},
+			},
+		},
+		{
+			name: "IN keyword in multi-line",
+			in: args{
+				sql: `SELECT * WHERE id IN (
+					?,
+					?,
+					?
+				)`,
+				args: []any{1, 2, 3},
+			},
+			out: args{
+				sql:  `SELECT * WHERE id IN ?`,
 				args: []any{[]any{1, 2, 3}},
 			},
 		},
