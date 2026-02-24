@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/grafana/grafana/pkg/util/xorm/ydb/filters"
+	"github.com/grafana/grafana/pkg/ydb/filters"
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xerrors"
 	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
