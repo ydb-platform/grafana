@@ -34,11 +34,9 @@ func AddSeedAssignmentMigrations(mg *migrator.Migrator) {
 			Postgres("ALTER TABLE `seed_assignment` ALTER COLUMN role_name DROP NOT NULL;").
 			Mysql("ALTER TABLE seed_assignment MODIFY role_name VARCHAR(190) DEFAULT NULL;"))
 
-	if mg.DBEngine.DriverName() != migrator.YDB {
-		mg.AddMigration("add unique index builtin_role_name back",
-			migrator.NewAddIndexMigration(seedAssignmentTable,
-				&migrator.Index{Cols: []string{"builtin_role", "role_name"}, Type: migrator.UniqueIndex}))
-	}
+	mg.AddMigration("add unique index builtin_role_name back",
+		migrator.NewAddIndexMigration(seedAssignmentTable,
+			&migrator.Index{Cols: []string{"builtin_role", "role_name"}, Type: migrator.UniqueIndex}))
 
 	mg.AddMigration("add unique index builtin_role_action_scope",
 		migrator.NewAddIndexMigration(seedAssignmentTable,
@@ -88,19 +86,6 @@ func (m *seedAssignmentPrimaryKeyMigrator) Exec(sess *xorm.Session, mig *migrato
 		);
 	`
 
-	if driver == migrator.YDB {
-		q = `
-		CREATE TABLE IF NOT EXISTS seed_assignment_temp (
-		    id SERIAL,
-			builtin_role TEXT,
-			action TEXT,
-			scope TEXT,
-			role_name TEXT,
-			PRIMARY KEY (id)
-		);
-	`
-	}
-
 	_, err := sess.Exec(q)
 	if err != nil {
 		return err
@@ -108,9 +93,6 @@ func (m *seedAssignmentPrimaryKeyMigrator) Exec(sess *xorm.Session, mig *migrato
 
 	q = "INSERT INTO seed_assignment_temp (builtin_role, action, scope, role_name) SELECT * FROM seed_assignment;"
 
-	if driver == migrator.YDB {
-		q = `INSERT INTO seed_assignment_temp SELECT * FROM seed_assignment`
-	}
 	// copy data to temp table
 	_, err = sess.Exec(q)
 	if err != nil {
@@ -119,21 +101,10 @@ func (m *seedAssignmentPrimaryKeyMigrator) Exec(sess *xorm.Session, mig *migrato
 
 	q = "DROP INDEX UQE_seed_assignment_builtin_role_action_scope;"
 
-	if driver == migrator.YDB {
-		q = `ALTER TABLE seed_assignment DROP INDEX UQE_seed_assignment_builtin_role_action_scope`
-	}
-
 	// drop indices on old table
 	_, err = sess.Exec(q)
 	if err != nil {
 		return err
-	}
-
-	if driver != migrator.YDB {
-		_, err = sess.Exec("DROP INDEX UQE_seed_assignment_builtin_role_role_name;")
-		if err != nil {
-			return err
-		}
 	}
 
 	// drop old table

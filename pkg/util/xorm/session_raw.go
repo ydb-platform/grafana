@@ -13,9 +13,7 @@ import (
 	"xorm.io/builder"
 )
 
-func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
-	session.engine.logger.Debugf("[queryPreprocess] source sql: %q, params: %+v", *sqlStr, paramStr)
-
+func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) []any {
 	args := paramStr
 	for _, filter := range session.engine.dialect.Filters() {
 		if filterWithArgs, has := filter.(core.FilterWithArgs); has {
@@ -28,13 +26,13 @@ func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
 	session.lastSQL = *sqlStr
 	session.lastSQLArgs = args
 
-	session.engine.logger.Debugf("[queryPreprocess] replaced sql: %q, params: %+v", *sqlStr, args)
+	return args
 }
 
 func (session *Session) queryRows(sqlStr string, args ...any) (*core.Rows, error) {
 	defer session.resetStatement()
 
-	session.queryPreprocess(&sqlStr, args...)
+	args = session.queryPreprocess(&sqlStr, args...)
 
 	if session.showSQL {
 		session.lastSQL = sqlStr
@@ -157,7 +155,7 @@ func (session *Session) queryBytes(sqlStr string, args ...any) ([]map[string][]b
 func (session *Session) exec(sqlStr string, args ...any) (sql.Result, error) {
 	defer session.resetStatement()
 
-	session.queryPreprocess(&sqlStr, args...)
+	args = session.queryPreprocess(&sqlStr, args...)
 
 	if session.engine.showSQL {
 		if session.engine.showExecTime {

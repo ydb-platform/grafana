@@ -49,16 +49,6 @@ import (
 
 const FULLPATH_SEPARATOR = "/"
 
-// isYDBConflictWithExistingKey reports YDB PRECONDITION_FAILED (400120) "Conflict with existing key".
-// Sync folder from dashboard is idempotent; this error can mean the table is already in sync.
-func isYDBConflictWithExistingKey(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "Conflict with existing key") || strings.Contains(s, "400120")
-}
-
 var (
 	_ folder.LegacyService = (*Service)(nil)
 	_ folder.Service       = (*Service)(nil)
@@ -179,20 +169,6 @@ func (s *Service) DBMigration(db db.DB) {
 				SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = true
 				ON CONFLICT(uid, org_id) DO UPDATE SET title=excluded.title, updated=excluded.updated
 			`)
-		} else if db.GetDialect().DriverName() == migrator.YDB {
-			// YDB: group by expression with AS so SELECT uses the key name (see YQL GROUP BY docs)
-			_, err = sess.Exec(`
-				UPSERT INTO folder (uid, org_id, title, created, updated)
-				SELECT g.folder_uid, g.org_id, g.title, g.created, g.updated FROM (
-					SELECT folder_uid, org_id, MAX(title) AS title, MAX(created) AS created, MAX(updated) AS updated
-					FROM dashboard WHERE is_folder
-					GROUP BY COALESCE(uid, "") AS folder_uid, org_id
-				) AS g
-			`)
-			if err != nil && isYDBConflictWithExistingKey(err) {
-				// Idempotent sync: folder table already in sync with dashboard (YDB PRECONDITION_FAILED 400120)
-				err = nil
-			}
 		} else {
 			// covered by UQE_folder_org_id_uid
 			_, err = sess.Exec(`
@@ -212,12 +188,6 @@ func (s *Service) DBMigration(db db.DB) {
 				(SELECT 1 FROM dashboard WHERE dashboard.uid = folder.uid AND dashboard.org_id = folder.org_id AND dashboard.is_folder = true)
 			`
 
-			if db.GetDialect().DriverName() == migrator.YDB {
-				q = `
-				DELETE FROM folder ON
-    				SELECT folder.id AS id FROM folder JOIN dashboard ON dashboard.uid = folder.uid 
-        				WHERE dashboard.org_id = folder.org_id AND dashboard.is_folder = true`
-			}
 			_, err = sess.Exec(q)
 		}
 		return err

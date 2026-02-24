@@ -771,9 +771,16 @@ var (
 
 const postgresPublicSchema = "public"
 
+var (
+	_ core.Dialect                = (*postgres)(nil)
+	_ core.DialectWithReturningID = (*postgres)(nil)
+)
+
 type postgres struct {
 	core.Base
 }
+
+func (db *postgres) WithReturningID() {}
 
 func (db *postgres) Init(d *core.DB, uri *core.Uri, drivername, dataSourceName string) error {
 	err := db.Base.Init(d, db, uri, drivername, dataSourceName)

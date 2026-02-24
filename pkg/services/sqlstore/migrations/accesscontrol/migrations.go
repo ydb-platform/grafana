@@ -159,11 +159,6 @@ func AddMigration(mg *migrator.Migrator) {
 		},
 	}
 
-	if mg.DBEngine.DriverName() == migrator.YDB {
-		seedAssignmentV1.Columns[0].IsPrimaryKey = true
-		seedAssignmentV1.Columns[1].IsPrimaryKey = true
-	}
-
 	mg.AddMigration("create seed assignment table", migrator.NewAddTableMigration(seedAssignmentV1))
 
 	//-------  indexes ------------------

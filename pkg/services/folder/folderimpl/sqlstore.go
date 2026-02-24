@@ -513,11 +513,7 @@ func (ss *FolderStoreImpl) GetFolders(ctx context.Context, q folder.GetFoldersFr
 				if q.Limit > 0 {
 					s.WriteString(` ORDER BY f0.title ASC`)
 					s.WriteString(` LIMIT ? OFFSET ?`)
-					if ss.db.GetDialect().DriverName() == migrator.YDB {
-						args = append(args, uint64(q.Limit), uint64((q.Page-1)*q.Limit))
-					} else {
-						args = append(args, q.Limit, uint64((q.Page-1)*q.Limit))
-					}
+					args = append(args, q.Limit, uint64((q.Page-1)*q.Limit))
 				} else if q.OrderByTitle {
 					s.WriteString(` ORDER BY f0.title ASC`)
 				}
@@ -628,9 +624,6 @@ func getFullpathSQL(dialect migrator.Dialect) string {
 		escaped = `\\/`
 	}
 	replaceExpr := "REPLACE"
-	if dialect.DriverName() == migrator.YDB {
-		replaceExpr = "Unicode::ReplaceAll"
-	}
 	concatCols := make([]string, 0, folder.MaxNestedFolderDepth)
 	concatCols = append(concatCols, fmt.Sprintf("COALESCE(%s(f0.title, '/', '%s'), '')", replaceExpr, escaped))
 	for i := 1; i <= folder.MaxNestedFolderDepth; i++ {
