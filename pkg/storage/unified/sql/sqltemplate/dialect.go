@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"strings"
+
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
 // Dialect-agnostic errors.
@@ -16,7 +18,7 @@ var (
 // DialectForDriver returns a predefined Dialect for the given driver name, or
 // nil if no Dialect is known for that driver.
 func DialectForDriver(driverName string) Dialect {
-	switch strings.ToLower(driverName) {
+	switch dbType := strings.ToLower(driverName); dbType {
 	case "mysql":
 		return MySQL
 	case "postgres", "pgx":
@@ -24,7 +26,7 @@ func DialectForDriver(driverName string) Dialect {
 	case "sqlite", "sqlite3":
 		return SQLite
 	default:
-		return nil
+		return core.QueryDialect(core.DbType(dbType)).(Dialect)
 	}
 }
 

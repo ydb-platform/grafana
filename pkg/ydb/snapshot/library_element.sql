@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS `library_element` (
+  `id` Serial NOT NULL,
+  `org_id` Int64 NOT NULL,
+  `folder_id` Int64 NOT NULL,
+  `uid` Text NOT NULL,
+  `name` Text NOT NULL,
+  `kind` Int64 NOT NULL,
+  `type` Text NOT NULL,
+  `description` Text NOT NULL,
+  `model` Text NOT NULL,
+  `created` Datetime64 NOT NULL,
+  `created_by` Int64 NOT NULL,
+  `updated` Datetime64 NOT NULL,
+  `updated_by` Int64 NOT NULL,
+  `version` Int64 NOT NULL,
+  `folder_uid` Text,
+  PRIMARY KEY (`id`),
+  INDEX `UQE_library_element_org_id_folder_id_name_kind` GLOBAL UNIQUE SYNC ON (`org_id`, `folder_id`, `name`, `kind`),
+  INDEX `UQE_library_element_org_id_uid` GLOBAL UNIQUE SYNC ON (`org_id`, `uid`),
+  INDEX `UQE_library_element_org_id_folder_uid_name_kind` GLOBAL UNIQUE SYNC ON (`org_id`, `folder_uid`, `name`, `kind`)
+);
