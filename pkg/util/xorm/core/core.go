@@ -357,9 +357,7 @@ func (db *DB) QueryRowStruct(query string, st interface{}) *Row {
 	return db.QueryRowStructContext(context.Background(), query, st)
 }
 
-var (
-	re = regexp.MustCompile(`[?](\w+)`)
-)
+var re = regexp.MustCompile(`[?](\w+)`)
 
 // ExecMapContext exec map with context.Context
 // insert into (name) values (?)
@@ -457,6 +455,12 @@ type Dialect interface {
 
 	Filters() []Filter
 	SetParams(params map[string]string)
+}
+
+type DialectWithReturningID interface {
+	Dialect
+
+	WithReturningID()
 }
 
 func OpenDialect(dialect Dialect) (*DB, error) {
@@ -684,9 +688,7 @@ func (b *Base) LogSQL(sql string, args []interface{}) {
 func (b *Base) SetParams(params map[string]string) {
 }
 
-var (
-	dialects = map[string]func() Dialect{}
-)
+var dialects = map[string]func() Dialect{}
 
 // RegisterDialect register database dialect
 func RegisterDialect(dbName DbType, dialectFunc func() Dialect) {
@@ -708,9 +710,7 @@ type Driver interface {
 	Parse(string, string) (*Uri, error)
 }
 
-var (
-	drivers = map[string]Driver{}
-)
+var drivers = map[string]Driver{}
 
 func RegisterDriver(driverName string, driver Driver) {
 	if driver == nil {
@@ -742,9 +742,13 @@ type Filter interface {
 	Do(sql string, dialect Dialect, table *Table) string
 }
 
-// QuoteFilter filter SQL replace ` to database's own quote character
-type QuoteFilter struct {
+// FilterWithArgs is an interface to filter SQL with args
+type FilterWithArgs interface {
+	DoWithArgs(sql string, dialect Dialect, table *Table, args ...any) (string, []any)
 }
+
+// QuoteFilter filter SQL replace ` to database's own quote character
+type QuoteFilter struct{}
 
 func (s *QuoteFilter) Do(sql string, dialect Dialect, table *Table) string {
 	dummy := dialect.Quote("")
@@ -767,8 +771,7 @@ func (s *QuoteFilter) Do(sql string, dialect Dialect, table *Table) string {
 }
 
 // IdFilter filter SQL replace (id) to primary key column name
-type IdFilter struct {
-}
+type IdFilter struct{}
 
 type Quoter struct {
 	dialect Dialect
@@ -801,7 +804,7 @@ type SeqFilter struct {
 func convertQuestionMark(sql, prefix string, start int) string {
 	var buf strings.Builder
 	var beginSingleQuote bool
-	var index = start
+	index := start
 	for _, c := range sql {
 		if !beginSingleQuote && c == '?' {
 			buf.WriteString(fmt.Sprintf("%s%v", prefix, index))
@@ -816,7 +819,7 @@ func convertQuestionMark(sql, prefix string, start int) string {
 	return buf.String()
 }
 
-func (s *SeqFilter) Do(sql string, dialect Dialect, table *Table) string {
+func (s *SeqFilter) Do(sql string, _ Dialect, _ *Table) string {
 	return convertQuestionMark(sql, s.Prefix, s.Start)
 }
 
@@ -929,7 +932,8 @@ type CacheMapper struct {
 }
 
 func NewCacheMapper(mapper IMapper) *CacheMapper {
-	return &CacheMapper{oriMapper: mapper, obj2tableCache: make(map[string]string),
+	return &CacheMapper{
+		oriMapper: mapper, obj2tableCache: make(map[string]string),
 		table2objCache: make(map[string]string),
 	}
 }
@@ -966,8 +970,7 @@ func (m *CacheMapper) Table2Obj(t string) string {
 
 // SnakeMapper implements IMapper and provides name transaltion between
 // struct and database table
-type SnakeMapper struct {
-}
+type SnakeMapper struct{}
 
 func snakeCasedName(name string) string {
 	newstr := make([]rune, 0)
@@ -1047,9 +1050,9 @@ func (rs *Rows) ToMapString() ([]map[string]string, error) {
 		return nil, err
 	}
 
-	var results = make([]map[string]string, 0, 10)
+	results := make([]map[string]string, 0, 10)
 	for rs.Next() {
-		var record = make(map[string]string, len(cols))
+		record := make(map[string]string, len(cols))
 		err = rs.ScanMap(&record)
 		if err != nil {
 			return nil, err
@@ -1081,7 +1084,7 @@ func (rs *Rows) ScanStructByIndex(dest ...interface{}) error {
 	}
 	newDest := make([]interface{}, len(cols))
 
-	var i = 0
+	i := 0
 	for _, vvv := range vvvs {
 		for j := 0; j < vvv.NumField(); j++ {
 			newDest[i] = vvv.Field(j).Addr().Interface()
@@ -1353,7 +1356,7 @@ func (row *Row) ToMapString() (map[string]string, error) {
 		return nil, err
 	}
 
-	var record = make(map[string]string, len(cols))
+	record := make(map[string]string, len(cols))
 	err = row.ScanMap(&record)
 	if err != nil {
 		return nil, err
@@ -1364,9 +1367,7 @@ func (row *Row) ToMapString() (map[string]string, error) {
 
 type NullTime time.Time
 
-var (
-	_ driver.Valuer = NullTime{}
-)
+var _ driver.Valuer = NullTime{}
 
 func (ns *NullTime) Scan(value interface{}) error {
 	if value == nil {
@@ -1410,8 +1411,7 @@ func convertTime(dest *NullTime, src interface{}) error {
 	return nil
 }
 
-type EmptyScanner struct {
-}
+type EmptyScanner struct{}
 
 func (EmptyScanner) Scan(src interface{}) error {
 	return nil
@@ -1605,7 +1605,8 @@ func NewEmptyTable() *Table {
 
 // NewTable creates a new Table object
 func NewTable(name string, t reflect.Type) *Table {
-	return &Table{Name: name, Type: t,
+	return &Table{
+		Name: name, Type: t,
 		columnsSeq:  make([]string, 0),
 		columns:     make([]*Column, 0),
 		columnsMap:  make(map[string][]*Column),
@@ -1630,7 +1631,6 @@ func (table *Table) columnsByName(name string) []*Column {
 }
 
 func (table *Table) GetColumn(name string) *Column {
-
 	cols := table.columnsByName(name)
 
 	if cols != nil {
@@ -1683,6 +1683,9 @@ func (table *Table) DeletedColumn() *Column {
 // AddColumn adds a column to table
 func (table *Table) AddColumn(col *Column) {
 	table.columnsSeq = append(table.columnsSeq, col.Name)
+	if table.Name == "alert_configuration_history" {
+		table.Name = "alert_configuration_history"
+	}
 	table.columns = append(table.columns, col)
 	colName := strings.ToLower(col.Name)
 	if c, ok := table.columnsMap[colName]; ok {
@@ -1868,6 +1871,7 @@ const (
 	MYSQL    = "mysql"
 	MSSQL    = "mssql"
 	ORACLE   = "oracle"
+	YDB      = "ydb"
 )
 
 // xorm SQL types

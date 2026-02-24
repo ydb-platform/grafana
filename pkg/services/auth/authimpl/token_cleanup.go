@@ -78,9 +78,7 @@ func (s *UserAuthTokenService) deleteOrphanedExternalSessions(ctx context.Contex
 
 	var affected int64
 	err := s.sqlStore.WithDbSession(ctx, func(dbSession *db.Session) error {
-		sql := `DELETE FROM user_external_session WHERE NOT EXISTS (SELECT 1 FROM user_auth_token WHERE user_external_session.id = user_auth_token.external_session_id)`
-
-		res, err := dbSession.Exec(sql)
+		res, err := dbSession.Exec(`DELETE FROM user_external_session WHERE NOT EXISTS (SELECT 1 FROM user_auth_token WHERE user_external_session.id = user_auth_token.external_session_id)`)
 		if err != nil {
 			return err
 		}

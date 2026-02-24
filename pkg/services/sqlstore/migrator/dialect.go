@@ -108,6 +108,12 @@ type Dialect interface {
 	Concat(...string) string
 }
 
+type DialectRecursiveCTE interface {
+	Dialect
+
+	RecursiveQueriesAreSupported() (bool, error)
+}
+
 type LockCfg struct {
 	Session *xorm.Session
 	Key     string
@@ -136,6 +142,13 @@ func NewDialect(driverName string) Dialect {
 type BaseDialect struct {
 	dialect    Dialect
 	driverName string
+}
+
+func NewBaseDialect(driverName string, dialect Dialect) BaseDialect {
+	return BaseDialect{
+		dialect:    dialect,
+		driverName: driverName,
+	}
 }
 
 func (b *BaseDialect) DriverName() string {

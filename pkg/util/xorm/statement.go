@@ -350,7 +350,9 @@ func (statement *Statement) buildUpdates(bean any,
 		if fieldType.Kind() == reflect.Ptr {
 			if fieldValue.IsNil() {
 				if includeNil {
-					args = append(args, nil)
+					var nilValue any
+
+					args = append(args, nilValue)
 					colNames = append(colNames, fmt.Sprintf("%v=?", engine.Quote(col.Name)))
 				}
 				continue

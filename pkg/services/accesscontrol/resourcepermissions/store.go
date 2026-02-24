@@ -373,16 +373,19 @@ func (s *store) getResourcePermissions(sess *db.Session, orgID int64, query GetR
 	FROM permission p
 		INNER JOIN role r ON p.role_id = r.id
     `
-	userFrom := rawFrom + `
+	dialect := s.sql.GetDialect()
+	userQuote := dialect.Quote("user")
+	var userFrom, teamFrom, builtinFrom string
+	var userWhereSuffix, teamWhereSuffix, builtinWhereSuffix string
+	userFrom = rawFrom + `
 		INNER JOIN user_role ur ON r.id = ur.role_id AND (ur.org_id = 0 OR ur.org_id = ?)
-		INNER JOIN ` + s.sql.GetDialect().Quote("user") + ` u ON ur.user_id = u.id
+		INNER JOIN ` + userQuote + ` u ON ur.user_id = u.id
 	`
-	teamFrom := rawFrom + `
+	teamFrom = rawFrom + `
 		INNER JOIN team_role tr ON r.id = tr.role_id AND (tr.org_id = 0 OR tr.org_id = ?)
 		INNER JOIN team t ON tr.team_id = t.id
 	`
-
-	builtinFrom := rawFrom + `
+	builtinFrom = rawFrom + `
 		INNER JOIN builtin_role br ON r.id = br.role_id AND (br.org_id = 0 OR br.org_id = ?)
 	`
 
@@ -416,7 +419,10 @@ func (s *store) getResourcePermissions(sess *db.Session, orgID int64, query GetR
 	}
 
 	initialLength := len(args)
-	userQuery := userSelect + userFrom + where
+	// YDB: WHERE order is (r.org_id=?), scope, scope, scope, actions, (ur.org_id=?). Initial args are (ur.org_id), (r.org_id), scope..., so reorder to match.
+	initialArgs := make([]any, initialLength)
+	copy(initialArgs, args)
+	userQuery := userSelect + userFrom + where + userWhereSuffix
 	if query.EnforceAccessControl {
 		userFilter, err := accesscontrol.Filter(query.User, "u.id", "users:id:", accesscontrol.ActionOrgUsersRead)
 		if err != nil {
@@ -442,11 +448,11 @@ func (s *store) getResourcePermissions(sess *db.Session, orgID int64, query GetR
 		return nil, err
 	}
 
-	team := teamSelect + teamFrom + where + " AND " + teamFilter.Where
+	team := teamSelect + teamFrom + where + teamWhereSuffix + " AND " + teamFilter.Where
 	args = append(args, args[:initialLength]...)
 	args = append(args, teamFilter.Args...)
 
-	builtin := builtinSelect + builtinFrom + where
+	builtin := builtinSelect + builtinFrom + where + builtinWhereSuffix
 	args = append(args, args[:initialLength]...)
 
 	sql := userQuery + " " + s.sql.GetDialect().UnionDistinct() + " " + team + " " + s.sql.GetDialect().UnionDistinct() + " " + builtin

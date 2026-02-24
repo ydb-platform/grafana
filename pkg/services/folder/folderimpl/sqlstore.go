@@ -513,7 +513,7 @@ func (ss *FolderStoreImpl) GetFolders(ctx context.Context, q folder.GetFoldersFr
 				if q.Limit > 0 {
 					s.WriteString(` ORDER BY f0.title ASC`)
 					s.WriteString(` LIMIT ? OFFSET ?`)
-					args = append(args, q.Limit, (q.Page-1)*q.Limit)
+					args = append(args, q.Limit, uint64((q.Page-1)*q.Limit))
 				} else if q.OrderByTitle {
 					s.WriteString(` ORDER BY f0.title ASC`)
 				}
@@ -623,10 +623,11 @@ func getFullpathSQL(dialect migrator.Dialect) string {
 	if dialect.DriverName() == migrator.MySQL {
 		escaped = `\\/`
 	}
+	replaceExpr := "REPLACE"
 	concatCols := make([]string, 0, folder.MaxNestedFolderDepth)
-	concatCols = append(concatCols, fmt.Sprintf("COALESCE(REPLACE(f0.title, '/', '%s'), '')", escaped))
+	concatCols = append(concatCols, fmt.Sprintf("COALESCE(%s(f0.title, '/', '%s'), '')", replaceExpr, escaped))
 	for i := 1; i <= folder.MaxNestedFolderDepth; i++ {
-		concatCols = append([]string{fmt.Sprintf("COALESCE(REPLACE(f%d.title, '/', '%s'), '')", i, escaped), "'/'"}, concatCols...)
+		concatCols = append([]string{fmt.Sprintf("COALESCE(%s(f%d.title, '/', '%s'), '')", replaceExpr, i, escaped), "'/'"}, concatCols...)
 	}
 	return dialect.Concat(concatCols...)
 }

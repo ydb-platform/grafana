@@ -14,8 +14,8 @@ func (s *ServiceAccountsStoreImpl) GetUsageMetrics(ctx context.Context) (*servic
 	sb.Write("SELECT ")
 	sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("user") + ` ` +
 		`WHERE is_service_account = ` + dialect.BooleanStr(true) + `) AS serviceaccounts,`)
-	sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("api_key") +
-		`WHERE service_account_id IS NOT NULL ) AS serviceaccount_tokens,`)
+	sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("api_key") + ` ` +
+		`WHERE service_account_id IS NOT NULL) AS serviceaccount_tokens,`)
 	sb.Write(`(SELECT COUNT(*) FROM ` + dialect.Quote("org_user") + ` AS ou ` +
 		`JOIN ` + dialect.Quote("user") + ` AS u ON u.id = ou.user_id ` +
 		`WHERE u.is_disabled = ` + dialect.BooleanStr(false) + ` ` +

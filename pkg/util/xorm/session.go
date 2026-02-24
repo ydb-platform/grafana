@@ -53,6 +53,10 @@ type Session struct {
 	ctx context.Context
 }
 
+func (session *Session) Dialect() core.Dialect {
+	return session.engine.dialect
+}
+
 // Init reset the session as the init status.
 func (session *Session) Init() {
 	session.statement.Init()

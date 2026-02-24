@@ -108,7 +108,7 @@ func (c setRuleGuidMigration) Exec(sess *xorm.Session, mg *migrator.Migrator) er
 	q := `UPDATE alert_rule_version
 		SET rule_guid = alert_rule.guid
 		FROM alert_rule
-		WHERE alert_rule.uid = alert_rule_version.rule_uid 
+		WHERE alert_rule.uid = alert_rule_version.rule_uid
 		  AND alert_rule.org_id = alert_rule_version.rule_org_id;`
 
 	if mg.Dialect.DriverName() == migrator.MySQL {
@@ -188,7 +188,7 @@ func (c cleanUpRuleVersionsMigration) Exec(sess *xorm.Session, mg *migrator.Migr
 			WHERE EXISTS (
 			    SELECT 1
 			    FROM (%s) AR
-			    WHERE AR.uid = alert_rule_version.rule_uid 
+			    WHERE AR.uid = alert_rule_version.rule_uid
 			    AND alert_rule_version.version < AR.version - %d
 			)`, bd.String(), toKeep),
 		)

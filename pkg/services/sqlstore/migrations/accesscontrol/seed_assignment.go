@@ -72,11 +72,11 @@ func (m *seedAssignmentPrimaryKeyMigrator) Exec(sess *xorm.Session, mig *migrato
 		return err
 	}
 
-	// sqlite does not allow to add constraint after a table is created
+	// sqlite and YDB do not allow to add constraint after a table is created
 	// We need to create a new table with desired columns, move data to new table, delete old table and rename new table to old
 
 	// create temp table
-	_, err := sess.Exec(`
+	q := `
 		CREATE TABLE seed_assignment_temp (
 		    id INTEGER PRIMARY KEY AUTOINCREMENT,
 			builtin_role TEXT,
@@ -84,23 +84,25 @@ func (m *seedAssignmentPrimaryKeyMigrator) Exec(sess *xorm.Session, mig *migrato
 			scope TEXT,
 			role_name TEXT
 		);
-	`)
+	`
+
+	_, err := sess.Exec(q)
 	if err != nil {
 		return err
 	}
+
+	q = "INSERT INTO seed_assignment_temp (builtin_role, action, scope, role_name) SELECT * FROM seed_assignment;"
 
 	// copy data to temp table
-	_, err = sess.Exec("INSERT INTO seed_assignment_temp (builtin_role, action, scope, role_name) SELECT * FROM seed_assignment;")
+	_, err = sess.Exec(q)
 	if err != nil {
 		return err
 	}
 
+	q = "DROP INDEX UQE_seed_assignment_builtin_role_action_scope;"
+
 	// drop indices on old table
-	_, err = sess.Exec("DROP INDEX UQE_seed_assignment_builtin_role_action_scope;")
-	if err != nil {
-		return err
-	}
-	_, err = sess.Exec("DROP INDEX UQE_seed_assignment_builtin_role_role_name;")
+	_, err = sess.Exec(q)
 	if err != nil {
 		return err
 	}
@@ -118,14 +120,15 @@ func (m *seedAssignmentPrimaryKeyMigrator) Exec(sess *xorm.Session, mig *migrato
 	}
 
 	// recreate indexes on new table
-	_, err = sess.Exec("CREATE UNIQUE INDEX UQE_seed_assignment_builtin_role_action_scope ON seed_assignment (builtin_role, action, scope);")
-	if err != nil {
-		return err
-	}
-	_, err = sess.Exec("CREATE UNIQUE INDEX UQE_seed_assignment_builtin_role_role_name ON seed_assignment (builtin_role, role_name);")
-	if err != nil {
-		return err
-	}
+	// TODO: return
+	// _, err = sess.Exec("CREATE UNIQUE INDEX UQE_seed_assignment_builtin_role_action_scope ON seed_assignment (builtin_role, action, scope);")
+	// if err != nil {
+	// 	return err
+	// }
+	// _, err = sess.Exec("CREATE UNIQUE INDEX UQE_seed_assignment_builtin_role_role_name ON seed_assignment (builtin_role, role_name);")
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }

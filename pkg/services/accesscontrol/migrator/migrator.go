@@ -27,7 +27,7 @@ func MigrateScopeSplit(db db.DB, log log.Logger) error {
 	// Search for the permissions to update
 	var permissions []ac.Permission
 	if errFind := db.WithTransactionalDbSession(ctx, func(sess *sqlstore.DBSession) error {
-		return sess.SQL("SELECT * FROM permission WHERE NOT scope = '' AND identifier = ''").Find(&permissions)
+		return sess.SQL("SELECT * FROM permission WHERE scope != '' AND identifier = ''").Find(&permissions)
 	}); errFind != nil {
 		log.Error("Could not search for permissions to update", "migration", "scopeSplit", "error", errFind)
 		return errFind

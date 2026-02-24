@@ -159,15 +159,11 @@ func doBuild(binaryName, pkg string, opts BuildOpts) error {
 		return err
 	}
 
-	libcPart := ""
-	if opts.libc != "" {
-		libcPart = fmt.Sprintf("-%s", opts.libc)
-	}
 	binary := fmt.Sprintf("./bin/%s", binaryName)
 
 	//don't include os/arch/libc in output path in dev environment
 	if !opts.isDev {
-		binary = fmt.Sprintf("./bin/%s-%s%s/%s", opts.goos, opts.goarch, libcPart, binaryName)
+		binary = fmt.Sprintf("./bin/%s", binaryName)
 	}
 
 	if opts.goos == GoOSWindows {
@@ -217,11 +213,6 @@ func doBuild(binaryName, pkg string, opts BuildOpts) error {
 	}
 
 	runPrint("go", "version")
-	libcPart = ""
-	if opts.libc != "" {
-		libcPart = fmt.Sprintf("/%s", opts.libc)
-	}
-	fmt.Printf("Targeting %s/%s%s\n", opts.goos, opts.goarch, libcPart)
 
 	// Create an md5 checksum of the binary, to be included in the archive for
 	// automatic upgrades.

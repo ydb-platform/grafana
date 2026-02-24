@@ -153,6 +153,12 @@ func (s *AnonDBStore) CreateOrUpdateDevice(ctx context.Context, device *Device) 
 	}
 
 	args := []any{device.DeviceID, device.ClientIP, device.UserAgent, created.UTC(), device.UpdatedAt.UTC()}
+	query = `INSERT INTO anon_device (device_id, client_ip, user_agent, created_at, updated_at)
+					VALUES (?, ?, ?, ?, ?)
+					ON CONFLICT (device_id) DO UPDATE SET
+					client_ip = excluded.client_ip,
+					user_agent = excluded.user_agent,
+					updated_at = excluded.updated_at`
 	switch s.sqlStore.GetDBType() {
 	case migrator.Postgres:
 		query = `INSERT INTO anon_device (device_id, client_ip, user_agent, created_at, updated_at)
