@@ -16,7 +16,7 @@ type Driver struct {
 
 // DSN format: https://github.com/ydb-platform/ydb-go-sdk/blob/a804c31be0d3c44dfd7b21ed49d863619217b11d/connection.go#L339
 func (d *Driver) Parse(driverName, dataSourceName string) (*core.Uri, error) {
-	info := &core.Uri{DbType: core.YDB}
+	info := &core.Uri{DbType: "ydb"}
 
 	uri, err := url.Parse(dataSourceName)
 	if err != nil {

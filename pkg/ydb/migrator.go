@@ -81,7 +81,7 @@ func (d *Migrator) BatchSize() int {
 }
 
 func (d *Migrator) SQLType(c *migrator.Column) string {
-	xormDialect := core.QueryDialect(core.YDB)
+	xormDialect := core.QueryDialect("ydb")
 	column := &core.Column{
 		SQLType: core.SQLType{
 			Name:           c.Type,
