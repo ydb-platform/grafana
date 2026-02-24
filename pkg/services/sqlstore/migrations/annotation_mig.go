@@ -263,8 +263,6 @@ func RunDashboardUIDMigrations(sess *xorm.Session, driverName string) error {
 		LEFT JOIN dashboard ON annotation.dashboard_id = dashboard.id
 		SET annotation.dashboard_uid = dashboard.uid
 		WHERE annotation.dashboard_uid IS NULL and annotation.dashboard_id != 0;`
-	case YDB:
-		return nil
 	}
 	if _, err := sess.Exec(sql); err != nil {
 		return fmt.Errorf("failed to set dashboard_uid for annotation: %w", err)

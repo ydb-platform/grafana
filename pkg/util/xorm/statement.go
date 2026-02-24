@@ -352,12 +352,6 @@ func (statement *Statement) buildUpdates(bean any,
 				if includeNil {
 					var nilValue any
 
-					sqlType := statement.Engine.dialect.SqlType(col)
-					if sqlType == yql_Utf8 {
-						var ret *string
-						nilValue = ret
-					}
-
 					args = append(args, nilValue)
 					colNames = append(colNames, fmt.Sprintf("%v=?", engine.Quote(col.Name)))
 				}

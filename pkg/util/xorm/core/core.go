@@ -457,6 +457,12 @@ type Dialect interface {
 	SetParams(params map[string]string)
 }
 
+type DialectWithReturningID interface {
+	Dialect
+
+	WithReturningID()
+}
+
 func OpenDialect(dialect Dialect) (*DB, error) {
 	return Open(dialect.DriverName(), dialect.DataSourceName())
 }
@@ -736,6 +742,11 @@ type Filter interface {
 	Do(sql string, dialect Dialect, table *Table) string
 }
 
+// FilterWithArgs is an interface to filter SQL with args
+type FilterWithArgs interface {
+	DoWithArgs(sql string, dialect Dialect, table *Table, args ...any) (string, []any)
+}
+
 // QuoteFilter filter SQL replace ` to database's own quote character
 type QuoteFilter struct{}
 
@@ -808,7 +819,7 @@ func convertQuestionMark(sql, prefix string, start int) string {
 	return buf.String()
 }
 
-func (s *SeqFilter) Do(sql string, dialect Dialect, table *Table) string {
+func (s *SeqFilter) Do(sql string, _ Dialect, _ *Table) string {
 	return convertQuestionMark(sql, s.Prefix, s.Start)
 }
 
@@ -1672,6 +1683,9 @@ func (table *Table) DeletedColumn() *Column {
 // AddColumn adds a column to table
 func (table *Table) AddColumn(col *Column) {
 	table.columnsSeq = append(table.columnsSeq, col.Name)
+	if table.Name == "alert_configuration_history" {
+		table.Name = "alert_configuration_history"
+	}
 	table.columns = append(table.columns, col)
 	colName := strings.ToLower(col.Name)
 	if c, ok := table.columnsMap[colName]; ok {

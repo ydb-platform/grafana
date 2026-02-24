@@ -82,8 +82,6 @@ func RunStarMigrations(sess *xorm.Session, driverName string) error {
 			star.org_id = dashboard.org_id,
 			star.updated = NOW()
 		WHERE star.dashboard_uid IS NULL OR star.org_id IS NULL;`
-	case YDB:
-		return nil // TODO:
 	}
 
 	if _, err := sess.Exec(sql); err != nil {

@@ -42,22 +42,12 @@ SELECT DISTINCT
 // getSelectLibraryElementDTOWithMeta returns the SELECT clause for library elements with meta.
 // For YDB the scalar subquery is omitted (use 0 and fill via fillConnectedDashboardsYDB).
 func getSelectLibraryElementDTOWithMeta(dialect migrator.Dialect) string {
-	if dialect.DriverName() == migrator.YDB {
-		return `
-SELECT DISTINCT
-	le.name AS name, le.id, le.org_id, le.folder_id, le.uid, le.kind, le.type, le.description, le.model, le.created, le.created_by, le.updated, le.updated_by, le.version
-	, u1.login AS created_by_name
-	, u1.email AS created_by_email
-	, u2.login AS updated_by_name
-	, u2.email AS updated_by_email
-	, 0 AS connected_dashboards`
-	}
 	return selectLibraryElementDTOWithMeta
 }
 
 // fillConnectedDashboardsYDB fills ConnectedDashboards for elements when using YDB (no scalar subquery in SELECT).
 func fillConnectedDashboardsYDB(sess *db.Session, dialect migrator.Dialect, elements []model.LibraryElementWithMeta) error {
-	if dialect.DriverName() != migrator.YDB || len(elements) == 0 {
+	if len(elements) == 0 {
 		return nil
 	}
 	ids := make([]int64, 0, len(elements))
@@ -521,19 +511,10 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		if err := folderFilter.writeFolderFilterSQL(false, &builder); err != nil {
 			return err
 		}
-		// YDB: after UNION we need an explicit column alias; getSelectLibraryElementDTOWithMeta uses "le.name AS name" for YDB so ORDER BY name is valid.
-		if dialect.DriverName() == migrator.YDB {
-			if query.SortDirection == sort.SortAlphaDesc.Name {
-				builder.Write(" ORDER BY name DESC")
-			} else {
-				builder.Write(" ORDER BY name ASC")
-			}
+		if query.SortDirection == sort.SortAlphaDesc.Name {
+			builder.Write(" ORDER BY 1 DESC")
 		} else {
-			if query.SortDirection == sort.SortAlphaDesc.Name {
-				builder.Write(" ORDER BY 1 DESC")
-			} else {
-				builder.Write(" ORDER BY 1 ASC")
-			}
+			builder.Write(" ORDER BY 1 ASC")
 		}
 		writePerPageSQL(query, l.SQLStore, &builder)
 		if err := session.SQL(builder.GetSQLString(), builder.GetParams()...).Find(&elements); err != nil {

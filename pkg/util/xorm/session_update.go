@@ -208,10 +208,6 @@ func (session *Session) Update(bean any, condiBean ...any) (int64, error) {
 		condSQL = "WHERE " + condSQL
 	}
 
-	if st.OrderStr != "" {
-		condSQL = condSQL + fmt.Sprintf(" ORDER BY %v", st.OrderStr)
-	}
-
 	var tableName = session.statement.TableName()
 	// TODO: Oracle support needed
 	var top string

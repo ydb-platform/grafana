@@ -64,11 +64,8 @@ func (b *Builder) buildSelect() {
 			dashboard.deleted,
 			folder.uid AS folder_uid,
 			folder.title AS folder_slug,
-			folder.title AS folder_title 
+			folder.title AS folder_title
 		`
-	if b.Dialect.DriverName() == migrator.YDB {
-		selectList += `, dashboard.title AS title `
-	}
 	b.sql.WriteString(selectList)
 	for _, f := range b.Filters {
 		if f, ok := f.(model.FilterSelect); ok {
@@ -149,14 +146,6 @@ func (b *Builder) applyFilters() (ordering string) {
 		orders = append(orders, TitleSorter{}.OrderBy())
 	}
 	subquerySelect := "SELECT dashboard.id AS id FROM dashboard"
-	if b.Dialect.DriverName() == migrator.YDB {
-		for _, o := range orders {
-			if strings.Contains(o, "dashboard.title") {
-				subquerySelect = "SELECT dashboard.id AS id, dashboard.title AS title FROM dashboard"
-				break
-			}
-		}
-	}
 	b.sql.WriteString(fmt.Sprintf("%s %s", subquerySelect, forceIndex))
 	b.sql.WriteString(strings.Join(joins, ""))
 
@@ -196,9 +185,6 @@ func (b *Builder) applyFilters() (ordering string) {
 
 	// YDB: outer query has both dashboard.title and alias "title"; ORDER BY title is ambiguous ("column name: title conflicted")
 	orderByOuter := orderBy
-	if b.Dialect.DriverName() == migrator.YDB {
-		orderByOuter = strings.ReplaceAll(orderByOuter, " title ", " dashboard.title ")
-	}
 	order := strings.Join(orderJoins, "")
 	order += orderByOuter
 	return order

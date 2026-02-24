@@ -172,12 +172,10 @@ func alertInstanceMigration(mg *migrator.Migrator) {
 
 	mg.AddMigration("rename def_org_id to rule_org_id in alert_instance", migrator.NewRawSQLMigration("").
 		Default("ALTER TABLE alert_instance RENAME COLUMN def_org_id TO rule_org_id;").
-		YDB("ALTER TABLE alert_instance ADD COLUMN rule_org_id BIGINT;").
 		Mysql("ALTER TABLE alert_instance CHANGE def_org_id rule_org_id BIGINT;"))
 
 	mg.AddMigration("rename def_uid to rule_uid in alert_instance", migrator.NewRawSQLMigration("").
 		Default("ALTER TABLE alert_instance RENAME COLUMN def_uid TO rule_uid;").
-		YDB("ALTER TABLE alert_instance ADD COLUMN rule_uid String;").
 		Mysql("ALTER TABLE alert_instance CHANGE def_uid rule_uid VARCHAR(40);"))
 
 	mg.AddMigration("add index rule_org_id, rule_uid, current_state on alert_instance", migrator.NewAddIndexMigration(alertInstance, &migrator.Index{

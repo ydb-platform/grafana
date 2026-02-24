@@ -40,18 +40,7 @@ func (ss *sqlStore) GetBatch(ctx context.Context, cmd *dashver.DeleteExpiredVers
 	var versionIds []any
 	err := ss.db.WithDbSession(ctx, func(sess *db.Session) error {
 		var versionIdsToDeleteQuery string
-		if ss.dialect.DriverName() == migrator.YDB {
-			// YDB does not support CROSS JOIN + WHERE on same key; use INNER JOIN
-			versionIdsToDeleteQuery = `SELECT dashboard_version.id
-			FROM dashboard_version INNER JOIN (
-				SELECT dashboard_id, count(version) as count, min(version) as min
-				FROM dashboard_version
-				GROUP BY dashboard_id
-			) AS vtd ON dashboard_version.dashboard_id = vtd.dashboard_id
-			WHERE dashboard_version.version < vtd.min + vtd.count - ?
-			LIMIT ?`
-		} else {
-			versionIdsToDeleteQuery = `SELECT id
+		versionIdsToDeleteQuery = `SELECT id
 			FROM dashboard_version CROSS JOIN (
 				SELECT dashboard_id, count(version) as count, min(version) as min
 				FROM dashboard_version
@@ -60,7 +49,6 @@ func (ss *sqlStore) GetBatch(ctx context.Context, cmd *dashver.DeleteExpiredVers
 			WHERE dashboard_version.dashboard_id=vtd.dashboard_id
 			AND version < vtd.min + vtd.count - ?
 			LIMIT ?`
-		}
 		err := sess.SQL(versionIdsToDeleteQuery, versionsToKeep, perBatch).Find(&versionIds)
 		return err
 	})

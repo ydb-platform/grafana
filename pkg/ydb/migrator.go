@@ -1,4 +1,4 @@
-package migrator
+package ydb
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/lib/pq"
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
@@ -17,41 +18,42 @@ import (
 	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
-var _ DialectRecursiveCTE = (*YDBDialect)(nil)
+var _ migrator.DialectRecursiveCTE = (*Migrator)(nil)
 
-type YDBDialect struct {
-	BaseDialect
+type Migrator struct {
+	migrator.BaseDialect
 }
 
-func (d *YDBDialect) RecursiveQueriesAreSupported() (bool, error) {
+func (d *Migrator) RecursiveQueriesAreSupported() (bool, error) {
 	return false, nil
 }
 
-func NewYDBDialect() Dialect {
-	d := YDBDialect{}
-	d.dialect = &d
-	d.driverName = YDB
-	return &d
+func NewMigrator() migrator.Dialect {
+	d := &Migrator{}
+
+	d.BaseDialect = migrator.NewBaseDialect("ydb", d)
+
+	return d
 }
 
-func (d *YDBDialect) IndexCheckSQL(tableName, indexName string) (string, []any) {
+func (d *Migrator) IndexCheckSQL(tableName, indexName string) (string, []any) {
 	return "SELECT Path FROM `.sys/partition_stats` where Path LIKE '%/'" +
-		" || $1 || '/' || $2 || '/indexImplTable'", []any{tableName, indexName}
+		" || ? || '/' || ? || '/indexImplTable'", []any{tableName, indexName}
 }
 
-func (d *YDBDialect) SupportEngine() bool {
+func (d *Migrator) SupportEngine() bool {
 	return false
 }
 
-func (d *YDBDialect) Quote(name string) string {
+func (d *Migrator) Quote(name string) string {
 	return "`" + name + "`"
 }
 
-func (d *YDBDialect) Concat(strs ...string) string {
+func (d *Migrator) Concat(strs ...string) string {
 	return strings.Join(strs, " || ")
 }
 
-func (d *YDBDialect) LikeOperator(column string, wildcardBefore bool, pattern string, wildcardAfter bool) (string, string) {
+func (d *Migrator) LikeOperator(column string, wildcardBefore bool, pattern string, wildcardAfter bool) (string, string) {
 	param := pattern
 	if wildcardBefore {
 		param = "%" + param
@@ -62,23 +64,23 @@ func (d *YDBDialect) LikeOperator(column string, wildcardBefore bool, pattern st
 	return fmt.Sprintf("%s ILIKE ?", column), param
 }
 
-func (d *YDBDialect) AutoIncrStr() string {
+func (d *Migrator) AutoIncrStr() string {
 	return ""
 }
 
-func (d *YDBDialect) BooleanValue(value bool) any {
+func (d *Migrator) BooleanValue(value bool) any {
 	return value
 }
 
-func (d *YDBDialect) BooleanStr(value bool) string {
+func (d *Migrator) BooleanStr(value bool) string {
 	return strconv.FormatBool(value)
 }
 
-func (d *YDBDialect) BatchSize() int {
+func (d *Migrator) BatchSize() int {
 	return 1000
 }
 
-func (d *YDBDialect) SQLType(c *Column) string {
+func (d *Migrator) SQLType(c *migrator.Column) string {
 	xormDialect := core.QueryDialect(core.YDB)
 	column := &core.Column{
 		SQLType: core.SQLType{
@@ -92,14 +94,14 @@ func (d *YDBDialect) SQLType(c *Column) string {
 	return xormDialect.SqlType(column)
 }
 
-func (d *YDBDialect) AddColumnSQL(tableName string, col *Column) string {
+func (d *Migrator) AddColumnSQL(tableName string, col *migrator.Column) string {
 	col.Nullable = true // Cannot add not null column without default value
 	col.Default = ""    // Column addition with default value is not supported now
 
 	return d.BaseDialect.AddColumnSQL(tableName, col)
 }
 
-func (d *YDBDialect) RenameColumn(table Table, column *Column, newName string) string {
+func (d *Migrator) RenameColumn(table migrator.Table, column *migrator.Column, newName string) string {
 	oldName := column.Name
 	column.Name = newName
 	sql := d.AddColumnSQL(table.Name, column) + ";"
@@ -112,19 +114,19 @@ func (d *YDBDialect) RenameColumn(table Table, column *Column, newName string) s
 }
 
 // TODO:
-func (d *YDBDialect) ColumnCheckSQL(tableName, columnName string) (string, []any) {
+func (d *Migrator) ColumnCheckSQL(tableName, columnName string) (string, []any) {
 	return "", nil
 }
 
-func (d *YDBDialect) DropColumn(table Table, column *Column) string {
-	return fmt.Sprintf("alter table %s DROP COLUMN %s", d.dialect.Quote(table.Name), d.dialect.Quote(column.Name))
+func (d *Migrator) DropColumn(table migrator.Table, column *migrator.Column) string {
+	return fmt.Sprintf("alter table %s DROP COLUMN %s", d.Quote(table.Name), d.Quote(column.Name))
 }
 
-func (d *YDBDialect) DropIndexSQL(tableName string, index *Index) string {
-	return fmt.Sprintf("alter table %s DROP INDEX %s", d.dialect.Quote(tableName), d.dialect.Quote(index.XName(tableName)))
+func (d *Migrator) DropIndexSQL(tableName string, index *migrator.Index) string {
+	return fmt.Sprintf("alter table %s DROP INDEX %s", d.Quote(tableName), d.Quote(index.XName(tableName)))
 }
 
-func (d *YDBDialect) UpdateTableSQL(tableName string, columns []*Column) string {
+func (d *Migrator) UpdateTableSQL(tableName string, columns []*migrator.Column) string {
 	return ""
 	statements := []string{}
 
@@ -135,7 +137,7 @@ func (d *YDBDialect) UpdateTableSQL(tableName string, columns []*Column) string 
 	return "ALTER TABLE " + d.Quote(tableName) + " " + strings.Join(statements, ", ") + ";"
 }
 
-func (d *YDBDialect) CleanDB(engine *xorm.Engine) error {
+func (d *Migrator) CleanDB(engine *xorm.Engine) error {
 	sess := engine.NewSession()
 	defer sess.Close()
 
@@ -150,38 +152,38 @@ func (d *YDBDialect) CleanDB(engine *xorm.Engine) error {
 	return nil
 }
 
-func (d *YDBDialect) Default(col *Column) string {
-	if col.Type == DB_Bool {
+func (d *Migrator) Default(col *migrator.Column) string {
+	if col.Type == migrator.DB_Bool {
 		// Ensure that all dialects support the same literals in the same way.
 		bl, err := strconv.ParseBool(col.Default)
 		if err != nil {
 			panic(fmt.Errorf("failed to create default value for column '%s': invalid boolean default value '%s'", col.Name, col.Default))
 		}
-		return d.dialect.BooleanStr(bl)
+		return d.BooleanStr(bl)
 	}
 
-	if col.Type == DB_NVarchar {
+	if col.Type == migrator.DB_NVarchar {
 		return `"` + col.Default + `"`
 	}
 
 	return col.Default
 }
 
-func (d *YDBDialect) ColStringNoPk(col *Column) string {
-	sql := d.dialect.Quote(col.Name) + " "
+func (d *Migrator) ColStringNoPk(col *migrator.Column) string {
+	sql := d.Quote(col.Name) + " "
 
-	sql += d.dialect.SQLType(col) + " NULL " // TODO: remove always NULL when done with add not null columns
+	sql += d.SQLType(col) + " NULL " // TODO: remove always NULL when done with add not null columns
 
 	if col.Default != "" {
-		sql += "DEFAULT " + d.dialect.Default(col) + " "
+		sql += "DEFAULT " + d.Default(col) + " "
 	}
 
 	return sql
 }
 
-func (d *YDBDialect) CreateTableSQL(table *Table) string {
+func (d *Migrator) CreateTableSQL(table *migrator.Table) string {
 	sql := "CREATE TABLE IF NOT EXISTS "
-	sql += d.dialect.Quote(table.Name) + " (\n"
+	sql += d.Quote(table.Name) + " (\n"
 
 	pkList := table.PrimaryKeys
 
@@ -190,14 +192,14 @@ func (d *YDBDialect) CreateTableSQL(table *Table) string {
 			pkList = []string{col.Name}
 		}
 
-		sql += col.StringNoPk(d.dialect)
+		sql += col.StringNoPk(d)
 		sql = strings.TrimSpace(sql)
 		sql += "\n, "
 	}
 
 	quotedCols := []string{}
 	for _, col := range pkList {
-		quotedCols = append(quotedCols, d.dialect.Quote(col))
+		quotedCols = append(quotedCols, d.Quote(col))
 	}
 
 	sql += "PRIMARY KEY ( " + strings.Join(quotedCols, ",") + " ), "
@@ -210,7 +212,7 @@ func (d *YDBDialect) CreateTableSQL(table *Table) string {
 
 // TruncateDBTables truncates all the tables.
 // A special case is the dashboard_acl table where we keep the default permissions.
-func (d *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
+func (d *Migrator) TruncateDBTables(engine *xorm.Engine) error {
 	tables, err := engine.Dialect().GetTables()
 	if err != nil {
 		return err
@@ -268,7 +270,7 @@ func (d *YDBDialect) TruncateDBTables(engine *xorm.Engine) error {
 	return nil
 }
 
-func (d *YDBDialect) isThisError(err error, errcode string) bool {
+func (d *Migrator) isThisError(err error, errcode string) bool {
 	var driverErr *pq.Error
 	if errors.As(err, &driverErr) {
 		if string(driverErr.Code) == errcode {
@@ -279,7 +281,7 @@ func (d *YDBDialect) isThisError(err error, errcode string) bool {
 	return false
 }
 
-func (d *YDBDialect) ErrorMessage(err error) string {
+func (d *Migrator) ErrorMessage(err error) string {
 	var driverErr *pq.Error
 	if errors.As(err, &driverErr) {
 		return driverErr.Message
@@ -287,19 +289,19 @@ func (d *YDBDialect) ErrorMessage(err error) string {
 	return ""
 }
 
-func (d *YDBDialect) isUndefinedTable(err error) bool {
+func (d *Migrator) isUndefinedTable(err error) bool {
 	return ydb.IsOperationErrorSchemeError(err)
 }
 
-func (d *YDBDialect) IsUniqueConstraintViolation(err error) bool {
+func (d *Migrator) IsUniqueConstraintViolation(err error) bool {
 	return d.isThisError(err, "23505")
 }
 
-func (d *YDBDialect) IsDeadlock(err error) bool {
+func (d *Migrator) IsDeadlock(err error) bool {
 	return d.isThisError(err, "40P01")
 }
 
-func (d *YDBDialect) CreateIndexSQL(tableName string, index *Index) string {
+func (d *Migrator) CreateIndexSQL(tableName string, index *migrator.Index) string {
 	indexName := d.Quote(index.XName(tableName))
 	tableName = d.Quote(tableName)
 
@@ -317,51 +319,28 @@ func (d *YDBDialect) CreateIndexSQL(tableName string, index *Index) string {
 }
 
 // UpsertSQL returns the upsert sql statement for PostgreSQL dialect
-func (d *YDBDialect) UpsertSQL(tableName string, keyCols, updateCols []string) string {
+func (d *Migrator) UpsertSQL(tableName string, keyCols, updateCols []string) string {
 	str, _ := d.UpsertMultipleSQL(tableName, keyCols, updateCols, 1)
 	return str
 }
 
 // UpsertMultipleSQL returns the upsert sql statement for PostgreSQL dialect
-func (d *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []string, count int) (string, error) {
+func (d *Migrator) UpsertMultipleSQL(tableName string, keyCols, updateCols []string, count int) (string, error) {
 	if count < 1 {
 		return "", fmt.Errorf("upsert statement must have count >= 1. Got %v", count)
 	}
 	columnsStr := strings.Builder{}
-	const separator = ", "
-	separatorVar := separator
-	for i, c := range updateCols {
-		if i == len(updateCols)-1 {
-			separatorVar = ""
-		}
-		columnsStr.WriteString(fmt.Sprintf("%s%s", d.Quote(c), separatorVar))
-	}
-
 	valuesStr := strings.Builder{}
-	separatorVar = separator
-	nextPlaceHolder := 1
-
-	for i := 0; i < count; i++ {
-		if i == count-1 {
-			separatorVar = ""
+	for i, c := range updateCols {
+		if i > 0 {
+			columnsStr.WriteString(", ")
+			valuesStr.WriteString(", ")
 		}
-
-		colPlaceHoldersStr := strings.Builder{}
-		placeHolderSep := separator
-		for j := 1; j <= len(updateCols); j++ {
-			if j == len(updateCols) {
-				placeHolderSep = ""
-			}
-			placeHolder := fmt.Sprintf("$%v%s", nextPlaceHolder, placeHolderSep)
-			nextPlaceHolder++
-			colPlaceHoldersStr.WriteString(placeHolder)
-		}
-		colPlaceHolders := colPlaceHoldersStr.String()
-
-		valuesStr.WriteString(fmt.Sprintf("(%s)%s", colPlaceHolders, separatorVar))
+		columnsStr.WriteString(d.Quote(c))
+		valuesStr.WriteString("?")
 	}
 
-	s := fmt.Sprintf(`UPSERT INTO %s (%s) VALUES %s;`,
+	s := fmt.Sprintf(`UPSERT INTO %s (%s) VALUES (%s);`,
 		tableName,
 		columnsStr.String(),
 		valuesStr.String(),
@@ -370,7 +349,7 @@ func (d *YDBDialect) UpsertMultipleSQL(tableName string, keyCols, updateCols []s
 	return s, nil
 }
 
-func (d *YDBDialect) GetDBName(dsn string) (string, error) {
+func (d *Migrator) GetDBName(dsn string) (string, error) {
 	uri, err := url.Parse(dsn)
 	if err != nil {
 		return "", fmt.Errorf("failed on parse data source %v", dsn)
@@ -383,7 +362,7 @@ func (d *YDBDialect) GetDBName(dsn string) (string, error) {
 // so "dashboard.title" is not in the subquery result and causes "Member not found".
 // We use "title" and the builder must add "dashboard.title AS title" to the subquery
 // SELECT when ordering by title (see searchstore/builder.go).
-func (d *YDBDialect) OrderBy(order string) string {
+func (d *Migrator) OrderBy(order string) string {
 	order = strings.ReplaceAll(order, "dashboard.title", "title")
 	return order
 }

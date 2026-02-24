@@ -37,7 +37,10 @@ func addFolderMigrations(mg *migrator.Migrator) {
 	}))
 
 	mg.AddMigration("Sync dashboard and folder table", migrator.NewRawSQLMigration("").
-		Mysql(`
+		Default(`
+			INSERT INTO folder (uid, org_id, title, created, updated)
+			SELECT * FROM (SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = 1)
+		`).Mysql(`
 			INSERT INTO folder (uid, org_id, title, created, updated)
 			SELECT * FROM (SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = 1) AS derived
 			ON DUPLICATE KEY UPDATE title=derived.title, updated=derived.updated
@@ -49,22 +52,11 @@ func addFolderMigrations(mg *migrator.Migrator) {
 			INSERT INTO folder (uid, org_id, title, created, updated)
 			SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = 1
 			ON CONFLICT DO UPDATE SET title=excluded.title, updated=excluded.updated
-		`).YDB(`
-			UPSERT INTO folder (uid, org_id, title, created, updated)
-			SELECT g.folder_uid, g.org_id, g.title, g.created, g.updated FROM (
-				SELECT folder_uid, org_id, MAX(title) AS title, MAX(created) AS created, MAX(updated) AS updated
-				FROM dashboard WHERE is_folder
-				GROUP BY COALESCE(uid, "") AS folder_uid, org_id
-			) AS g
 		`))
 
 	mg.AddMigration("Remove ghost folders from the folder table", migrator.NewRawSQLMigration(`
 			DELETE FROM folder WHERE NOT EXISTS
 				(SELECT 1 FROM dashboard WHERE dashboard.uid = folder.uid AND dashboard.org_id = folder.org_id AND dashboard.is_folder = true)
-	`).YDB(`
-			DELETE FROM folder ON 
-    			SELECT folder.id AS id FROM folder JOIN dashboard ON dashboard.uid = folder.uid AND dashboard.org_id = folder.org_id 
-    			WHERE dashboard.is_folder
 	`)) // TODO: YDB case should be non empty
 }
 
