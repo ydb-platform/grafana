@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `cloud_migration_snapshot` (
+  `id` Serial NOT NULL,
+  `uid` Text,
+  `session_uid` Text,
+  `created` Datetime64 NOT NULL,
+  `updated` Datetime64 NOT NULL,
+  `finished` Datetime64,
+  `upload_url` Text,
+  `status` Text NOT NULL,
+  `local_directory` Text,
+  `gms_snapshot_uid` Text,
+  `encryption_key` Text,
+  `error_string` Text,
+  `resource_storage_type` Text,
+  `encryption_algo` Text,
+  `metadata` Bytes,
+  `public_key` Bytes,
+  PRIMARY KEY (`id`),
+  INDEX `UQE_cloud_migration_snapshot_uid` GLOBAL UNIQUE SYNC ON (`uid`)
+);

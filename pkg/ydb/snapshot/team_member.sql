@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS `team_member` (
+  `id` Serial NOT NULL,
+  `org_id` Int64 NOT NULL,
+  `team_id` Int64 NOT NULL,
+  `user_id` Int64 NOT NULL,
+  `created` Datetime64 NOT NULL,
+  `updated` Datetime64 NOT NULL,
+  `external` Int64,
+  `permission` Int64,
+  PRIMARY KEY (`id`),
+  INDEX `IDX_team_member_org_id` GLOBAL SYNC ON (`org_id`),
+  INDEX `UQE_team_member_org_id_team_id_user_id` GLOBAL UNIQUE SYNC ON (`org_id`, `team_id`, `user_id`),
+  INDEX `IDX_team_member_team_id` GLOBAL SYNC ON (`team_id`),
+  INDEX `IDX_team_member_user_id_org_id` GLOBAL SYNC ON (`user_id`, `org_id`),
+);

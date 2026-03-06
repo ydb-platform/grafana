@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS `permission` (
+  `id` Serial NOT NULL,
+  `role_id` Int64 NOT NULL,
+  `action` Text NOT NULL,
+  `scope` Text NOT NULL,
+  `created` Datetime64 NOT NULL,
+  `updated` Datetime64 NOT NULL,
+  `kind` Text NOT NULL DEFAULT '',
+  `attribute` Text NOT NULL DEFAULT '',
+  `identifier` Text NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  INDEX `IDX_permission_identifier` GLOBAL SYNC ON (`identifier`),
+  INDEX `UQE_permission_action_scope_role_id` GLOBAL UNIQUE SYNC ON (`action`, `scope`, `role_id`),
+  INDEX `IDX_permission_role_id_action` GLOBAL SYNC ON (`role_id`, `action`),
+);
