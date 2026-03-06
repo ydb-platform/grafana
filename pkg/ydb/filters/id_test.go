@@ -24,8 +24,8 @@ func TestID(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			id := &ID{}
-			require.Equal(t, tt.exp, id.Do(tt.sql, nil, tt.table))
+			f := &ID{}
+			require.Equal(t, tt.exp, f.Do(tt.sql, nil, tt.table))
 		})
 	}
 }

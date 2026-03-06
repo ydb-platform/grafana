@@ -1,6 +1,6 @@
 package migrator
 
-func Register(driverName string, fn dialectFunc) {
+func RegisterDialect(driverName string, fn dialectFunc) {
 	if _, exist := supportedDialects[driverName]; exist {
 		panic("Database already registered: " + driverName)
 	}

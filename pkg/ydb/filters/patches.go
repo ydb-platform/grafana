@@ -55,8 +55,10 @@ func newPatches() *Patches {
 
 func (p *Patches) Do(sql string, _ core.Dialect, _ *core.Table) string {
 	if e, ok := p.m[strings.TrimSpace(sql)]; ok {
-		e.Count.Add(1)
-		fmt.Println(p.UnusedPatches())
+		if e.Count.Add(1) == 1 {
+			fmt.Printf("[YDB] patch %q excluded from %v\n", e.name, p.UnusedPatches())
+		}
+
 		return e.sql
 	}
 	return sql

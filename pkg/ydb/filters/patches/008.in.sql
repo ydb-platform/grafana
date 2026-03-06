@@ -1,1 +1,0 @@
-DROP INDEX UQE_seed_assignment_builtin_role_action_scope;

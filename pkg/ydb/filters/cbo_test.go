@@ -89,8 +89,8 @@ func TestCostBasedOptimizer_Do(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			cbo := &CostBasedOptimizer{}
-			require.Equal(t, tt.out, cbo.Do(tt.in, nil, nil))
+			f := &CostBasedOptimizer{}
+			require.Equal(t, tt.out, f.Do(tt.in, nil, nil))
 		})
 	}
 }

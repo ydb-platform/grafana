@@ -7,9 +7,15 @@ import (
 )
 
 func TestPatches_Do(t *testing.T) {
-	p := &Patches{m: map[string]*patchEntry{
-		"SELECT foo FROM bar": {name: "001", sql: "SELECT ydb_foo FROM bar"},
-		"UPDATE t SET x = 1":  {name: "002", sql: "UPSERT INTO t (x) VALUES (1)"},
+	f := &Patches{m: map[string]*patchEntry{
+		"SELECT foo FROM bar": {
+			name: "001",
+			sql:  "SELECT ydb_foo FROM bar",
+		},
+		"UPDATE t SET x = 1": {
+			name: "002",
+			sql:  "UPSERT INTO t (x) VALUES (1)",
+		},
 	}}
 
 	for _, tt := range []struct {
@@ -29,7 +35,7 @@ func TestPatches_Do(t *testing.T) {
 		},
 	} {
 		t.Run(tt.sql, func(t *testing.T) {
-			require.Equal(t, tt.exp, p.Do(tt.sql, nil, nil))
+			require.Equal(t, tt.exp, f.Do(tt.sql, nil, nil))
 		})
 	}
 }

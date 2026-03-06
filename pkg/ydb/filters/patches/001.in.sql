@@ -1,1 +1,1 @@
-ALTER TABLE alert_instance RENAME COLUMN def_org_id TO rule_org_id;
+SELECT * FROM permission WHERE NOT scope = '' AND identifier = ''

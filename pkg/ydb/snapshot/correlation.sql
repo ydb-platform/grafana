@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS `correlation` (
+  `uid` Text NOT NULL,
+  `org_id` Int64 NOT NULL DEFAULT 0,
+  `source_uid` Text NOT NULL,
+  `target_uid` Text,
+  `label` Text NOT NULL,
+  `description` Text NOT NULL,
+  `config` Text,
+  `provisioned` Int64 NOT NULL DEFAULT 0,
+  `type` Text NOT NULL DEFAULT 'query',
+  PRIMARY KEY (`uid`, `org_id`, `source_uid`),
+  INDEX `IDX_correlation_uid` GLOBAL SYNC ON (`uid`),
+  INDEX `IDX_correlation_source_uid` GLOBAL SYNC ON (`source_uid`),
+  INDEX `IDX_correlation_org_id` GLOBAL SYNC ON (`org_id`),
+);

@@ -7,9 +7,13 @@ import (
 )
 
 func init() {
-	migrator.Register("ydb", ydb.NewMigrator)
-	core.RegisterDriver("ydb", &ydb.Driver{})
+	ydb := ydb.NewYDB()
+
+	core.RegisterDriver("ydb", ydb)
 	core.RegisterDialect("ydb", func() core.Dialect {
-		return &ydb.Dialect{}
+		return ydb
+	})
+	migrator.RegisterDialect("ydb", func() migrator.Dialect {
+		return ydb
 	})
 }

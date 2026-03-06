@@ -33,8 +33,8 @@ func TestDuration(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &Duration{}
-			sql, args := s.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
+			f := &Duration{}
+			sql, args := f.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
 			require.Equal(t, tt.out.sql, sql)
 			require.Equal(t, tt.out.args, args)
 		})

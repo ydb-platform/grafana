@@ -39,6 +39,17 @@ func TestIn(t *testing.T) {
 			},
 		},
 		{
+			name: "IN in lower case",
+			in: args{
+				sql:  "SELECT * FROM tabl WHERE created > ? AND status in (?, ?)",
+				args: []any{1, 2, 3},
+			},
+			out: args{
+				sql:  "SELECT * FROM tabl WHERE created > ? AND status IN ?",
+				args: []any{1, []any{2, 3}},
+			},
+		},
+		{
 			name: "single IN without separate spaces",
 			in: args{
 				sql:  "SELECT * FROM tbl WHERE id IN (?,?,?)",
@@ -121,8 +132,8 @@ func TestIn(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &IN{}
-			sql, args := s.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
+			f := &IN{}
+			sql, args := f.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
 			require.Equal(t, tt.out.sql, sql)
 			require.Equal(t, tt.out.args, args)
 		})

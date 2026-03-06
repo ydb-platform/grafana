@@ -1,2 +1,1 @@
-ALTER TABLE alert_instance
-ADD COLUMN rule_org_id Int64;
+SELECT * FROM permission WHERE scope != '' AND identifier = ''

@@ -64,8 +64,8 @@ func TestILike(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &ILike{}
-			require.Equal(t, tt.out, s.Do(tt.in, nil, nil))
+			f := &ILike{}
+			require.Equal(t, tt.out, f.Do(tt.in, nil, nil))
 		})
 	}
 }

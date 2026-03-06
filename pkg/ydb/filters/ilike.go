@@ -12,10 +12,6 @@ var (
 
 type ILike struct{}
 
-func isWordByte(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
-}
-
 // findILike finds the next "ILIKE" outside string literals starting at start.
 // Returns position of 'I' or -1. Checks that ILIKE is not part of a longer word.
 func findILike(sql string, start int) int {
