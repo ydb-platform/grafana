@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS `team` (
   `updated` Datetime64 NOT NULL,
   `uid` Text,
   `external_uid` Text,
-  `is_provisioned` Bool,
+  `is_provisioned` Uint8,
   `email` Text,
   PRIMARY KEY (`id`),
   INDEX `IDX_team_org_id` GLOBAL SYNC ON (`org_id`),

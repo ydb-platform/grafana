@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS `alert_rule` (
   `dashboard_uid` Text,
   `panel_id` Int64,
   `rule_group_idx` Int64 NOT NULL DEFAULT 1,
-  `is_paused` Bool NOT NULL DEFAULT false,
+  `is_paused` Uint8 NOT NULL DEFAULT 0,
   `notification_settings` Text,
   `record` Text,
   `metadata` Text,

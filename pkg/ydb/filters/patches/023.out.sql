@@ -6,6 +6,6 @@ SELECT
 FROM (
   SELECT uid, org_id, title, created, updated
   FROM dashboard
-  WHERE is_folder
+  WHERE is_folder == 1
 )
 

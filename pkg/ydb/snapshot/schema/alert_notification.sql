@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS `alert_notification` (
   `settings` Text NOT NULL,
   `created` Datetime64 NOT NULL,
   `updated` Datetime64 NOT NULL,
-  `is_default` Bool NOT NULL DEFAULT false,
+  `is_default` Uint8 NOT NULL DEFAULT 0,
   `frequency` Int64,
   `send_reminder` Int64 DEFAULT 0,
   `disable_resolve_message` Int64 NOT NULL DEFAULT 0,

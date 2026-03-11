@@ -12,5 +12,5 @@ FROM
     FROM
       dashboard
     WHERE
-      is_folder
+      is_folder = 1
   );

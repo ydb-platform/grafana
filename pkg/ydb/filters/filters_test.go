@@ -6,7 +6,6 @@ import (
 
 	"github.com/grafana/grafana/pkg/util/xorm/core"
 	"github.com/stretchr/testify/require"
-	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xstring"
 )
 
 func TestFilters(t *testing.T) {
@@ -52,14 +51,15 @@ func TestFilters(t *testing.T) {
 		{
 			name: "IN clause with literal values",
 			in: args{
-				sql:  "SELECT * FROM tabl WHERE created > ? AND status in (?, ?) OR is_folder = 1",
-				args: []any{1, 2, 3},
+				sql:  "SELECT * FROM tabl WHERE created > ? AND status in (?, ?) OR is_folder = ?",
+				args: []any{1, 2, 3, true},
 			},
 			out: args{
-				sql: "SELECT * FROM tabl WHERE created > $p1 AND status IN $p2 OR is_folder",
+				sql: "SELECT * FROM tabl WHERE created > $p1 AND status IN $p2 OR is_folder = $p3",
 				args: []any{
 					sql.Named("p1", int64(1)),
 					sql.Named("p2", []any{int64(2), int64(3)}),
+					sql.Named("p3", uint8(1)),
 				},
 			},
 		},
@@ -74,10 +74,10 @@ func TestFilters(t *testing.T) {
 				args: []any{
 					sql.Named("p1", int64(1772043198)),
 					sql.Named("p2", int64(1772043198)),
-					sql.Named("p3", xstring.ToBytes("0")),
+					sql.Named("p3", "0"),
 					sql.Named("p4", []any{
-						xstring.ToBytes("SignUpStarted"),
-						xstring.ToBytes("InvitePending"),
+						"SignUpStarted",
+						"InvitePending",
 					}),
 				},
 			},
@@ -104,7 +104,7 @@ func TestFilters(t *testing.T) {
 						  FROM dashboard
 						  WHERE dashboard.org_id = ?
 							AND dashboard.uid IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-							AND dashboard.is_folder = true
+							AND dashboard.is_folder = 1
 							AND dashboard.folder_uid IS NULL
 							AND dashboard.uid != ?
 							AND (dashboard.folder_uid != ? OR dashboard.folder_uid IS NULL)
@@ -145,7 +145,7 @@ func TestFilters(t *testing.T) {
 						  FROM dashboard
 						  WHERE dashboard.org_id = $p1
 							AND dashboard.uid IN $p2
-							AND dashboard.is_folder = true
+							AND dashboard.is_folder = 1
 							AND dashboard.folder_uid IS NULL
 							AND dashboard.uid != $p3
 							AND (dashboard.folder_uid != $p4 OR dashboard.folder_uid IS NULL)
@@ -180,7 +180,7 @@ func TestFilters(t *testing.T) {
 			out: args{
 				sql: "INSERT INTO dashboard_version (\n  dashboard_id,\n  version,\n  parent_version,\n  restored_from,\n  created,\n  created_by,\n  message,\n  `data`\n)\nSELECT\n  dashboard.id AS dashboard_id,\n  dashboard.version AS version,\n  dashboard.version AS parent_version,\n  dashboard.version AS restored_from,\n  dashboard.updated AS created,\n  COALESCE(dashboard.updated_by, -1) AS created_by,\n  $p1 AS message,\n  dashboard.data AS `data`\nFROM dashboard;\n",
 				args: []any{
-					sql.Named("p1", []byte{}),
+					sql.Named("p1", ""),
 				},
 			},
 		},

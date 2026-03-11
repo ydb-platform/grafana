@@ -24,12 +24,6 @@ func (f *String) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...a
 		case string:
 			if t, err := time.Parse(time.DateTime, v); err == nil {
 				args[i] = types.Datetime64Value(t.Unix())
-				//} else {
-				//	if b := xstring.ToBytes(v); len(b) > 0 {
-				//		args[i] = b
-				//	} else {
-				//		args[i] = []byte{}
-				//	}
 			}
 		default:
 			// nop

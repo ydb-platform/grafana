@@ -1,1 +1,10 @@
-UPDATE `user` AS u SET login = 'sa-' || Unwrap(CAST(u.org_id AS STRING)) || SUBSTRING(u.login, LENGTH('sa-'||Unwrap(CAST(u.org_id AS STRING))||'-'||Unwrap(CAST(u.org_id AS STRING)))+1) WHERE u.login IS NOT NULL AND u.is_service_account AND u.login LIKE 'sa-'||Unwrap(CAST(u.org_id AS STRING))||'-'||Unwrap(CAST(u.org_id AS STRING))||'-%' AND NOT EXISTS ( SELECT 1 FROM  `user`AS u2 WHERE u2.login = 'sa-' || Unwrap(CAST(u.org_id AS STRING)) || SUBSTRING(u.login, LENGTH('sa-'||Unwrap(CAST(u.org_id AS STRING))||'-'||Unwrap(CAST(u.org_id AS STRING)))+1));
+UPDATE `user`
+SET
+  login = 'sa-' || Unwrap(CAST(org_id AS STRING)) || '-' || CASE
+    WHEN SUBSTRING(login, 1, 3) = 'sa-' THEN SUBSTRING(login, 4)
+    ELSE login
+  END
+WHERE
+  login IS NOT NULL
+  AND is_service_account = 1
+  AND login NOT LIKE 'sa-' || Unwrap(CAST(org_id AS STRING)) || '-%';

@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS `api_key` (
   `expires` Int64,
   `service_account_id` Int64,
   `last_used_at` Datetime64,
-  `is_revoked` Bool DEFAULT false,
+  `is_revoked` Uint8 DEFAULT 0,
   PRIMARY KEY (`id`),
   INDEX `IDX_api_key_org_id` GLOBAL SYNC ON (`org_id`),
   INDEX `UQE_api_key_key` GLOBAL UNIQUE SYNC ON (`key`),

@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS `sso_setting` (
   `settings` Text NOT NULL,
   `created` Datetime64 NOT NULL,
   `updated` Datetime64 NOT NULL,
-  `is_deleted` Bool NOT NULL DEFAULT false
+  `is_deleted` Uint8 NOT NULL DEFAULT 0
 );

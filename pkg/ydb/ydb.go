@@ -13,6 +13,7 @@ import (
 	"github.com/grafana/grafana/pkg/services/sqlstore/session"
 	"github.com/grafana/grafana/pkg/storage/unified/sql/sqltemplate"
 	"github.com/grafana/grafana/pkg/ydb/filters"
+	"github.com/grafana/grafana/pkg/ydb/snapshot"
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xerrors"
 	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xslices"
@@ -123,65 +124,6 @@ var (
 )
 
 const ydbDriverName = "ydb"
-
-type (
-	Logger struct {
-		indent int
-	}
-	LoggerEntry struct {
-		logger       *Logger
-		functionName string
-		indent       int
-	}
-)
-
-func (l *Logger) Start(functionName string, args ...any) *LoggerEntry {
-	if l == nil {
-		return nil
-	}
-
-	l.indent++
-
-	fmt.Printf("[YDB]%s-> %s(", strings.Repeat("  ", l.indent), functionName)
-	for i, arg := range args {
-		if i > 0 {
-			fmt.Printf(", ")
-		}
-		if v, has := arg.([]byte); has {
-			arg = v
-		}
-		fmt.Printf("%v", arg)
-	}
-	fmt.Printf(")\n")
-
-	return &LoggerEntry{
-		logger:       l,
-		functionName: functionName,
-		indent:       l.indent,
-	}
-}
-
-func (l *LoggerEntry) End(results ...any) {
-	if l == nil {
-		return
-	}
-
-	defer func() {
-		l.logger.indent--
-	}()
-
-	fmt.Printf("[YDB]%s<- %s => ", strings.Repeat("  ", l.indent), l.functionName)
-	for i, res := range results {
-		if i > 0 {
-			fmt.Printf(", ")
-		}
-		if v, has := res.([]byte); has {
-			res = v
-		}
-		fmt.Printf("%v", res)
-	}
-	fmt.Printf("\n")
-}
 
 func NewYDB() *YDB {
 	return &YDB{
@@ -700,7 +642,7 @@ func (d *YDB) CreateDatabaseFromSnapshot(ctx context.Context, engine *xorm.Engin
 	end := d.log.Start("CreateDatabaseFromSnapshot", ctx, engine, migrationLogTableName)
 	defer func() { end.End(err) }()
 
-	if err := applySnapshot(ctx, d.db, migrationLogTableName); err != nil {
+	if err := snapshot.Apply(ctx, d.db, migrationLogTableName); err != nil {
 		return xerrors.WithStackTrace(err)
 	}
 

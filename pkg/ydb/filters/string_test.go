@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/ydb-platform/ydb-go-sdk/v3/table/types"
 )
 
 func TestString(t *testing.T) {
@@ -14,10 +15,20 @@ func TestString(t *testing.T) {
 		exp  []any
 	}{
 		{
-			name: "int to int64",
+			name: "string",
 			sql:  "SELECT ?, ?, ?",
 			args: []any{"a", "b", "c"},
-			exp:  []any{[]byte("a"), []byte("b"), []byte("c")},
+			exp:  []any{"a", "b", "c"},
+		},
+		{
+			name: "datetime64",
+			sql:  "SELECT ?, ?, ?",
+			args: []any{"2006-01-02 15:04:05", "2007-01-02 15:04:05", "2008-01-02 15:04:05"},
+			exp: []any{
+				types.Datetime64Value(1136214245),
+				types.Datetime64Value(1167750245),
+				types.Datetime64Value(1199286245),
+			},
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
