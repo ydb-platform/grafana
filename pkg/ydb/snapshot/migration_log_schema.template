@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS `{{.Name}}` (
+  `id` Serial NOT NULL,
+  `migration_id` Text NOT NULL,
+  `sql` Text,
+  `success` Uint8 NOT NULL,
+  `error` Text,
+  `timestamp` Datetime64,
+  PRIMARY KEY (`migration_id`),
+);

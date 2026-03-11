@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS `role` (
+  `id` Serial NOT NULL,
+  `name` Text NOT NULL,
+  `description` Text,
+  `version` Int64 NOT NULL,
+  `org_id` Int64 NOT NULL,
+  `uid` Text NOT NULL,
+  `created` Datetime64 NOT NULL,
+  `updated` Datetime64 NOT NULL,
+  `display_name` Text,
+  `group_name` Text,
+  `hidden` Int64 NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  INDEX `IDX_role_org_id` GLOBAL SYNC ON (`org_id`),
+  INDEX `UQE_role_org_id_name` GLOBAL UNIQUE SYNC ON (`org_id`, `name`),
+  INDEX `UQE_role_uid` GLOBAL UNIQUE SYNC ON (`uid`),
+);
