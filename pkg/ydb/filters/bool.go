@@ -5,17 +5,17 @@ import (
 )
 
 var (
-	_ core.Filter         = (*Bool)(nil)
-	_ core.FilterWithArgs = (*Bool)(nil)
+	_ core.Filter         = (*ConvertBoolToUint8)(nil)
+	_ core.FilterWithArgs = (*ConvertBoolToUint8)(nil)
 )
 
-type Bool struct{}
+type ConvertBoolToUint8 struct{}
 
-func (f *Bool) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ConvertBoolToUint8) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
-func (f *Bool) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ConvertBoolToUint8) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	for i := range args {
 		switch v := args[i].(type) {
 		case bool:

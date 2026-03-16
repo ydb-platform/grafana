@@ -1,16 +1,20 @@
-UPSERT INTO folder (uid, org_id, title, created, updated)
-SELECT
-  *
-FROM
-  (
+$to_update =
+  SELECT guid FROM (
     SELECT
-      uid,
-      org_id,
-      title,
-      created,
-      updated
-    FROM
-      dashboard
+      guid,
+      ROW_NUMBER() OVER (ORDER BY created ASC) AS rn
+    FROM `secret_secure_value`
     WHERE
-      is_folder = 1
-  );
+      `active` = FALSE AND
+      ? - `created` > ? AND
+      ? - `lease_created` > ?
+  ) AS sub
+  WHERE rn <= ?
+;
+UPDATE
+  `secret_secure_value`
+SET
+  `lease_token` = ?,
+  `lease_created` = ?
+WHERE guid IN (SELECT guid FROM $to_update)
+;

@@ -3,19 +3,19 @@ package filters
 import "github.com/grafana/grafana/pkg/util/xorm/core"
 
 var (
-	_ core.Filter         = (*Limit)(nil)
-	_ core.FilterWithArgs = (*Limit)(nil)
+	_ core.Filter         = (*ConvertLimitArgToUint64)(nil)
+	_ core.FilterWithArgs = (*ConvertLimitArgToUint64)(nil)
 )
 
-type Limit struct{}
+type ConvertLimitArgToUint64 struct{}
 
-func (f *Limit) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ConvertLimitArgToUint64) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
 // indexOfLimitPlaceholder returns the byte position of the '?' that follows "LIMIT" in sql, or -1.
 // Only considers LIMIT outside string literals. LIMIT may be followed by optional whitespace then ?.
-func (f *Limit) indexOfLimitPlaceholder(sql string) int {
+func (f *ConvertLimitArgToUint64) indexOfLimitPlaceholder(sql string) int {
 	inString := false
 	var quote byte
 	i := 0
@@ -53,11 +53,11 @@ func (f *Limit) indexOfLimitPlaceholder(sql string) int {
 	return -1
 }
 
-func (f *Limit) isWordByte(b byte) bool {
+func (f *ConvertLimitArgToUint64) isWordByte(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
-func (f *Limit) toUint64(v any) (uint64, bool) {
+func (f *ConvertLimitArgToUint64) toUint64(v any) (uint64, bool) {
 	switch x := v.(type) {
 	case uint64:
 		return x, true
@@ -99,7 +99,7 @@ func (f *Limit) toUint64(v any) (uint64, bool) {
 	}
 }
 
-func (f *Limit) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ConvertLimitArgToUint64) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	limitQPos := f.indexOfLimitPlaceholder(sql)
 	if limitQPos < 0 || len(args) == 0 {
 		return sql, args

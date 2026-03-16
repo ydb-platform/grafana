@@ -7,13 +7,15 @@ import (
 	"sync/atomic"
 
 	"github.com/grafana/grafana/pkg/util/xorm/core"
+	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xstring"
 )
 
 //go:embed patches/*.sql
 var patchesFS embed.FS
 
 var (
-	_ core.Filter = (*Patches)(nil)
+	_ core.Filter         = (*Patches)(nil)
+	_ core.FilterWithArgs = (*Patches)(nil)
 )
 
 type patchEntry struct {
@@ -23,11 +25,13 @@ type patchEntry struct {
 }
 
 type Patches struct {
-	m map[string]*patchEntry
+	patches map[string]*patchEntry
+
+	fallbacks []core.Filter
 }
 
-func newPatches() *Patches {
-	m := make(map[string]*patchEntry)
+func newPatches(fallbacks ...core.Filter) *Patches {
+	patches := make(map[string]*patchEntry)
 	entries, err := patchesFS.ReadDir("patches")
 	if err != nil {
 		panic(fmt.Sprintf("patches: read dir: %v", err))
@@ -47,26 +51,56 @@ func newPatches() *Patches {
 		if err != nil {
 			panic(fmt.Sprintf("patches: read %s: %v", outName, err))
 		}
-		key := strings.TrimSpace(string(inBytes))
-		m[key] = &patchEntry{name: num, sql: string(outBytes)}
+		key := minify(xstring.FromBytes(inBytes))
+		patches[key] = &patchEntry{name: num, sql: xstring.FromBytes(outBytes)}
 	}
-	return &Patches{m: m}
+	return &Patches{
+		patches:   patches,
+		fallbacks: fallbacks,
+	}
 }
 
-func (p *Patches) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	if e, ok := p.m[strings.TrimSpace(sql)]; ok {
+func minify(s string) string {
+	ss := strings.Split(s, "\n")
+	for i := range ss {
+		ss[i] = strings.TrimSpace(ss[i])
+	}
+	return strings.TrimSpace(strings.Join(ss, " "))
+}
+
+func (p *Patches) patch(sql string) (string, bool) {
+	if e, ok := p.patches[minify(sql)]; ok {
 		if e.Count.Add(1) == 1 {
 			fmt.Printf("[YDB] patch %q excluded from %v\n", e.name, p.UnusedPatches())
 		}
 
-		return e.sql
+		return e.sql, true
 	}
-	return sql
+
+	return sql, false
+}
+
+func (p *Patches) Do(sql string, d core.Dialect, t *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
+}
+
+func (p *Patches) DoWithArgs(sql string, dialect core.Dialect, table *core.Table, args ...any) (string, []any) {
+	sql, ok := p.patch(sql)
+
+	for _, f := range p.fallbacks {
+		if ff, has := f.(core.FilterWithArgs); has {
+			sql, args = ff.DoWithArgs(sql, dialect, table, args...)
+		} else if !ok {
+			sql = f.Do(sql, dialect, table)
+		}
+	}
+
+	return sql, args
 }
 
 func (p *Patches) UnusedPatches() []string {
 	var unused []string
-	for _, e := range p.m {
+	for _, e := range p.patches {
 		if e.Count.Load() == 0 {
 			unused = append(unused, e.name)
 		}

@@ -1,9 +1,15 @@
 CREATE TABLE IF NOT EXISTS `sso_setting` (
-  `id` Text NOT NULL,
-  PRIMARY KEY (`id`),
-  `provider` Text NOT NULL,
-  `settings` Text NOT NULL,
-  `created` Datetime64 NOT NULL,
-  `updated` Datetime64 NOT NULL,
-  `is_deleted` Uint8 NOT NULL DEFAULT 0
+    `id` Text,
+    `provider` Text,
+    `settings` Text,
+    `created` Datetime64,
+    `updated` Datetime64,
+    `is_deleted` Bool,
+    FAMILY `default` (COMPRESSION = 'off'),
+    PRIMARY KEY (`id`)
+)
+WITH (
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_PARTITION_SIZE_MB = 2048,
+    AUTO_PARTITIONING_BY_LOAD = ENABLED
 );

@@ -7,10 +7,10 @@ import (
 )
 
 var (
-	_ core.Filter = (*ILike)(nil)
+	_ core.Filter = (*ConvertILikeToLikeLowerCase)(nil)
 )
 
-type ILike struct{}
+type ConvertILikeToLikeLowerCase struct{}
 
 // findILike finds the next "ILIKE" outside string literals starting at start.
 // Returns position of 'I' or -1. Checks that ILIKE is not part of a longer word.
@@ -121,7 +121,7 @@ func rightOperand(sql string, ilikeEnd int) (start, end int) {
 	return start, end
 }
 
-func (f *ILike) Do(sql string, _ core.Dialect, _ *core.Table) string {
+func (f *ConvertILikeToLikeLowerCase) Do(sql string, _ core.Dialect, _ *core.Table) string {
 	if !strings.Contains(sql, "ILIKE") && !strings.Contains(sql, "ilike") {
 		return sql
 	}

@@ -24,7 +24,7 @@ func TestID(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &ID{}
+			f := &ReplaceIdPlaceholderToTableId{}
 			require.Equal(t, tt.exp, f.Do(tt.sql, nil, tt.table))
 		})
 	}

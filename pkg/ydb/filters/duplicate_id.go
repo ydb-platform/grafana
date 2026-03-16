@@ -7,11 +7,11 @@ import (
 )
 
 var (
-	_ core.Filter = (*DuplicateID)(nil)
+	_ core.Filter = (*ReduceDuplicateIdInSelect)(nil)
 )
 
-type DuplicateID struct{}
+type ReduceDuplicateIdInSelect struct{}
 
-func (DuplicateID) Do(sql string, dialect core.Dialect, table *core.Table) string {
+func (ReduceDuplicateIdInSelect) Do(sql string, dialect core.Dialect, table *core.Table) string {
 	return strings.ReplaceAll(sql, "SELECT `id`, `id`, ", "SELECT `id`, ")
 }

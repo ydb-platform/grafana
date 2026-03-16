@@ -1,15 +1,22 @@
 CREATE TABLE IF NOT EXISTS `file` (
-  `path` Text NOT NULL,
-  `path_hash` Text NOT NULL,
-  `parent_folder_path_hash` Text NOT NULL,
-  `contents` Bytes NOT NULL,
-  `etag` Text NOT NULL,
-  `cache_control` Text NOT NULL,
-  `content_disposition` Text NOT NULL,
-  `updated` Datetime64 NOT NULL,
-  `created` Datetime64 NOT NULL,
-  `size` Int64 NOT NULL,
-  `mime_type` Text NOT NULL,
-  PRIMARY KEY (`path_hash`),
-  INDEX `IDX_file_parent_folder_path_hash` GLOBAL SYNC ON (`parent_folder_path_hash`)
+    `path` Text,
+    `path_hash` Text,
+    `parent_folder_path_hash` Text,
+    `contents` Text,
+    `etag` Text,
+    `cache_control` Text,
+    `content_disposition` Text,
+    `updated` Datetime64,
+    `created` Datetime64,
+    `size` Int64,
+    `mime_type` Text,
+    INDEX `IDX_file_parent_folder_path_hash` GLOBAL ASYNC ON (`parent_folder_path_hash`),
+    FAMILY `default` (COMPRESSION = 'off'),
+    PRIMARY KEY (`path_hash`)
+)
+WITH (
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_PARTITION_SIZE_MB = 2048,
+    AUTO_PARTITIONING_BY_LOAD = ENABLED
 );
+

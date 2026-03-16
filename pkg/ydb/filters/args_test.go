@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestArgs(t *testing.T) {
+func TestConvertPositionalArgsToYdbNamedParameters(t *testing.T) {
 	type args struct {
 		sql  string
 		args []any
@@ -64,7 +64,7 @@ func TestArgs(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &Args{}
+			f := &ConvertPositionalArgsToYdbNamedParameters{}
 			sql, args := f.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
 			require.Equal(t, tt.out.sql, sql)
 			require.Equal(t, tt.out.args, args)

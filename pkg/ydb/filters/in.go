@@ -3,12 +3,12 @@ package filters
 import "github.com/grafana/grafana/pkg/util/xorm/core"
 
 var (
-	_ core.Filter         = (*IN)(nil)
-	_ core.FilterWithArgs = (*IN)(nil)
+	_ core.Filter         = (*ConvertInArgsToList)(nil)
+	_ core.FilterWithArgs = (*ConvertInArgsToList)(nil)
 )
 
 // IN filter SQL replace IN (?, ?, ?) to IN ? and many args (1,2,3) replace to single arg []any{1,2,3}
-type IN struct{}
+type ConvertInArgsToList struct{}
 
 // ydbInRange describes one "IN (?,...,?)" clause in the SQL (only placeholders, no subquery).
 type ydbInRange struct {
@@ -18,7 +18,7 @@ type ydbInRange struct {
 }
 
 // findInClauses finds all "IN (?,?,?)" style clauses (no regex): IN, optional space, (, only ? , space, ).
-func (f *IN) findInClauses(sql string) []ydbInRange {
+func (f *ConvertInArgsToList) findInClauses(sql string) []ydbInRange {
 	var ranges []ydbInRange
 	inString := false
 	var quote byte
@@ -84,15 +84,15 @@ func (f *IN) findInClauses(sql string) []ydbInRange {
 	return ranges
 }
 
-func (f *IN) isWordByte(b byte) bool {
+func (f *ConvertInArgsToList) isWordByte(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
 }
 
-func (f *IN) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ConvertInArgsToList) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
-func (f *IN) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ConvertInArgsToList) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	ranges := f.findInClauses(sql)
 	if len(ranges) == 0 {
 		return sql, args
@@ -145,11 +145,11 @@ func (f *IN) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) 
 		}
 	}
 
-	// Replace SQL only when there is exactly one IN clause.
+	// Replace every IN (?,...,?) with "IN ?" in SQL (from end to start so indices stay valid).
 	outSQL := sql
-	if len(ranges) == 1 {
-		r := ranges[0]
-		outSQL = sql[:r.start] + "IN ?" + sql[r.end:]
+	for i := len(ranges) - 1; i >= 0; i-- {
+		r := ranges[i]
+		outSQL = outSQL[:r.start] + "IN ?" + outSQL[r.end:]
 	}
 
 	return outSQL, newArgs

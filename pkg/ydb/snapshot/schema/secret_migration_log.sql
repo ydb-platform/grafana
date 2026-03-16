@@ -1,9 +1,16 @@
 CREATE TABLE IF NOT EXISTS `secret_migration_log` (
-  `id` Serial NOT NULL,
-  `migration_id` Text NOT NULL,
-  `sql` Text NOT NULL,
-  `success` Int64 NOT NULL,
-  `error` Text NOT NULL,
-  `timestamp` Datetime64 NOT NULL,
-  PRIMARY KEY (`id`)
+    `id` Serial8 NOT NULL,
+    `migration_id` Text,
+    `sql` Text,
+    `success` Bool,
+    `error` Text,
+    `timestamp` Datetime64,
+    FAMILY `default` (COMPRESSION = 'off'),
+    PRIMARY KEY (`id`)
+)
+WITH (
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_PARTITION_SIZE_MB = 2048,
+    AUTO_PARTITIONING_BY_LOAD = ENABLED
 );
+

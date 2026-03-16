@@ -7,7 +7,7 @@ import (
 )
 
 func TestPatches_Do(t *testing.T) {
-	f := &Patches{m: map[string]*patchEntry{
+	f := &Patches{patches: map[string]*patchEntry{
 		"SELECT foo FROM bar": {
 			name: "001",
 			sql:  "SELECT ydb_foo FROM bar",
@@ -35,21 +35,23 @@ func TestPatches_Do(t *testing.T) {
 		},
 	} {
 		t.Run(tt.sql, func(t *testing.T) {
-			require.Equal(t, tt.exp, f.Do(tt.sql, nil, nil))
+			sql, args := f.DoWithArgs(tt.sql, nil, nil)
+			require.Equal(t, tt.exp, sql)
+			require.Empty(t, args)
 		})
 	}
 }
 
 func TestPatchesUnused(t *testing.T) {
-	p := &Patches{m: map[string]*patchEntry{
+	p := &Patches{patches: map[string]*patchEntry{
 		"SELECT foo": {name: "001", sql: "SELECT ydb_foo"},
 		"UPDATE t":   {name: "002", sql: "UPSERT t"},
 	}}
 	require.ElementsMatch(t, []string{"001", "002"}, p.UnusedPatches())
 
-	_ = p.Do("SELECT foo", nil, nil)
+	_, _ = p.DoWithArgs("SELECT foo", nil, nil)
 	require.ElementsMatch(t, []string{"002"}, p.UnusedPatches())
 
-	_ = p.Do("UPDATE t", nil, nil)
+	_, _ = p.DoWithArgs("UPDATE t", nil, nil)
 	require.Empty(t, p.UnusedPatches())
 }

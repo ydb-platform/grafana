@@ -5,17 +5,17 @@ import (
 )
 
 var (
-	_ core.Filter         = (*Numbers)(nil)
-	_ core.FilterWithArgs = (*Numbers)(nil)
+	_ core.Filter         = (*ConvertNumbersToInt64)(nil)
+	_ core.FilterWithArgs = (*ConvertNumbersToInt64)(nil)
 )
 
-type Numbers struct{}
+type ConvertNumbersToInt64 struct{}
 
-func (f *Numbers) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ConvertNumbersToInt64) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
-func (f *Numbers) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ConvertNumbersToInt64) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	for i := range args {
 		switch v := args[i].(type) {
 		case int:

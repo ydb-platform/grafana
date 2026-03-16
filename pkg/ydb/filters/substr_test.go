@@ -29,7 +29,7 @@ func TestSubstr(t *testing.T) {
 		},
 	} {
 		t.Run(tt.sql, func(t *testing.T) {
-			f := Substr{}
+			f := ConvertSubstrToSubstring{}
 			require.Equal(t, tt.exp, f.Do(tt.sql, nil, nil))
 		})
 	}

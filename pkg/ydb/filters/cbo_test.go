@@ -45,7 +45,7 @@ func TestShouldUseCostBasedOptimization(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cbo := CostBasedOptimizer{}
+			cbo := EnableCostBasedOptimizer{}
 			require.Equal(t, tt.shouldUseCostBasedOptimization, cbo.shouldUseCostBasedOptimization(tt.query))
 		})
 	}
@@ -89,7 +89,7 @@ func TestCostBasedOptimizer_Do(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &CostBasedOptimizer{}
+			f := &EnableCostBasedOptimizer{}
 			require.Equal(t, tt.out, f.Do(tt.in, nil, nil))
 		})
 	}

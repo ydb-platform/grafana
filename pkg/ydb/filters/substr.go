@@ -7,15 +7,15 @@ import (
 )
 
 var (
-	_ core.Filter = (*Substr)(nil)
+	_ core.Filter = (*ConvertSubstrToSubstring)(nil)
 )
 
-type Substr struct{}
+type ConvertSubstrToSubstring struct{}
 
 const substrFrom = "SUBSTR"
 const substrTo = "SUBSTRING"
 
-func (s Substr) Do(sql string, dialect core.Dialect, table *core.Table) string {
+func (s ConvertSubstrToSubstring) Do(sql string, dialect core.Dialect, table *core.Table) string {
 	if !strings.Contains(sql, "SUBSTR") {
 		return sql
 	}

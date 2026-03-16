@@ -9,18 +9,18 @@ import (
 )
 
 var (
-	_ core.Filter         = (*Args)(nil)
-	_ core.FilterWithArgs = (*Args)(nil)
+	_ core.Filter         = (*ConvertPositionalArgsToYdbNamedParameters)(nil)
+	_ core.FilterWithArgs = (*ConvertPositionalArgsToYdbNamedParameters)(nil)
 )
 
-// Args filter SQL replace ?, ? ... to $p1, $p2 ...
-type Args struct{}
+// ConvertPositionalArgsToYdbNamedParameters filter SQL replace ?, ? ... to $p1, $p2 ...
+type ConvertPositionalArgsToYdbNamedParameters struct{}
 
-func (f *Args) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ConvertPositionalArgsToYdbNamedParameters) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
-func (f *Args) DoWithArgs(query string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ConvertPositionalArgsToYdbNamedParameters) DoWithArgs(query string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	var buf strings.Builder
 	var beginQuote rune
 	index := 0

@@ -6,4 +6,4 @@ FROM
   JOIN dashboard ON dashboard.uid = folder.uid
 WHERE
   dashboard.org_id = folder.org_id
-  AND dashboard.is_folder = 1
+  AND dashboard.is_folder = true

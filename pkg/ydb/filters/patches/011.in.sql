@@ -1,3 +1,1 @@
-UPDATE preferences
-	SET home_dashboard_uid = (SELECT uid FROM dashboard WHERE dashboard.id = preferences.home_dashboard_id)
-	WHERE home_dashboard_uid IS NULL AND EXISTS (SELECT 1 FROM dashboard WHERE dashboard.id = preferences.home_dashboard_id);
+DELETE FROM user_external_session WHERE NOT EXISTS (SELECT 1 FROM user_auth_token WHERE user_external_session.id = user_auth_token.external_session_id)

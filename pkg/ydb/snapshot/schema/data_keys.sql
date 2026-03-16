@@ -1,11 +1,17 @@
 CREATE TABLE IF NOT EXISTS `data_keys` (
-  `name` Text NOT NULL,
-  `active` Int64 NOT NULL,
-  `scope` Text NOT NULL,
-  `provider` Text NOT NULL,
-  `encrypted_data` Bytes NOT NULL,
-  `created` Datetime64 NOT NULL,
-  `updated` Datetime64 NOT NULL,
-  `label` Text NOT NULL DEFAULT '',
-  PRIMARY KEY (`name`)
+    `name` Text,
+    `active` Bool,
+    `scope` Text,
+    `provider` Text,
+    `encrypted_data` String,
+    `created` Datetime64,
+    `updated` Datetime64,
+    `label` Text,
+    FAMILY `default` (COMPRESSION = 'off'),
+    PRIMARY KEY (`name`)
+)
+WITH (
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_PARTITION_SIZE_MB = 2048,
+    AUTO_PARTITIONING_BY_LOAD = ENABLED
 );

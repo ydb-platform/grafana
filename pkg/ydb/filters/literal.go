@@ -5,14 +5,14 @@ import (
 )
 
 var (
-	_ core.Filter         = (*Literal)(nil)
-	_ core.FilterWithArgs = (*Literal)(nil)
+	_ core.Filter         = (*ExtractLiteralToArgs)(nil)
+	_ core.FilterWithArgs = (*ExtractLiteralToArgs)(nil)
 )
 
-type Literal struct{}
+type ExtractLiteralToArgs struct{}
 
-func (f *Literal) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ExtractLiteralToArgs) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
 // literalSpan describes one string literal ('...' or "...") to replace with ?.
@@ -120,7 +120,7 @@ func inExcludeRange(pos int, exclude [][2]int) bool {
 // Backticks are not treated as value literals (used for identifiers). Numeric literals
 // are not extracted (LIMIT/OFFSET etc. are handled by other filters).
 // Literals inside CREATE TABLE (...); bodies are skipped.
-func (f *Literal) findLiterals(sql string) []literalSpan {
+func (f *ExtractLiteralToArgs) findLiterals(sql string) []literalSpan {
 	exclude := findCreateTableBodies(sql)
 	var out []literalSpan
 	i := 0
@@ -152,7 +152,7 @@ func skipExclude(pos int, exclude [][2]int) int {
 	return 0
 }
 
-func (f *Literal) parseQuotedString(sql string, i int) (string, int, bool) {
+func (f *ExtractLiteralToArgs) parseQuotedString(sql string, i int) (string, int, bool) {
 	if i >= len(sql) {
 		return "", i, false
 	}
@@ -174,7 +174,7 @@ func (f *Literal) parseQuotedString(sql string, i int) (string, int, bool) {
 	return "", i, false
 }
 
-func (f *Literal) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ExtractLiteralToArgs) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	literals := f.findLiterals(sql)
 	if len(literals) == 0 {
 		return sql, args

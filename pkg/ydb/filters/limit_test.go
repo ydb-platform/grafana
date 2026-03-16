@@ -62,7 +62,7 @@ func TestLimit(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &Limit{}
+			s := &ConvertLimitArgToUint64{}
 			sql, args := s.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
 			require.Equal(t, tt.out.sql, sql)
 			require.Equal(t, tt.out.args, args)

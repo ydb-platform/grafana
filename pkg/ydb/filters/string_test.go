@@ -32,7 +32,7 @@ func TestString(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &String{}
+			f := &ConvertStringToDatetime64{}
 			sql, args := f.DoWithArgs(tt.sql, nil, nil, tt.args...)
 			require.Equal(t, tt.sql, sql)
 			require.Equal(t, tt.exp, args)

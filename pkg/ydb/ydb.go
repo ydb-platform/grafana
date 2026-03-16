@@ -12,8 +12,8 @@ import (
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/services/sqlstore/session"
 	"github.com/grafana/grafana/pkg/storage/unified/sql/sqltemplate"
-	"github.com/grafana/grafana/pkg/ydb/filters"
 	"github.com/grafana/grafana/pkg/ydb/snapshot"
+	"github.com/ydb-platform/ydb-go-genproto/protos/Ydb"
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xerrors"
 	"github.com/ydb-platform/ydb-go-sdk/v3/pkg/xslices"
@@ -63,12 +63,12 @@ func toYQLDataType(t string, isAutoIncrement bool) string {
 		return types.TypeInt64.Yql()
 	case core.Int, core.Integer:
 		if isAutoIncrement {
-			return "Serial"
+			return "Serial8"
 		}
 		return types.TypeInt64.Yql()
 	case core.SmallInt, core.MediumInt, core.BigInt:
 		if isAutoIncrement {
-			return "Serial"
+			return "Serial8"
 		}
 		return types.TypeInt64.Yql()
 	case core.Float:
@@ -83,9 +83,9 @@ func toYQLDataType(t string, isAutoIncrement bool) string {
 		core.MediumText, core.LongText, core.Text, core.NText, core.TinyText:
 		return types.TypeText.Yql()
 	case core.TimeStamp, core.Time, core.Date, core.DateTime:
-		return types.TypeText.Yql()
+		return types.TypeDatetime64.Yql()
 	case core.Serial, core.BigSerial:
-		return "Serial"
+		return "Serial8"
 	default:
 		return t
 	}
@@ -149,7 +149,7 @@ func (d *YDB) Ident(s string) (string, error) {
 }
 
 func (d *YDB) ArgPlaceholder(argNum int) string {
-	return "$p" + strconv.Itoa(argNum+1)
+	return "?"
 }
 
 func (d *YDB) SelectFor(s ...string) (string, error) {
@@ -212,16 +212,7 @@ func (d *YDB) DriverName() string {
 	return ydbDriverName
 }
 
-// RecursiveQueriesAreSupported implements migrator.DialectRecursiveCTE (optional).
-func (d *YDB) RecursiveQueriesAreSupported() (ok bool, err error) {
-	end := d.log.Start("RecursiveQueriesAreSupported")
-	defer func() { end.End(ok, err) }()
-	return false, nil
-}
-
 func (d *YDB) SQLType(col *migrator.Column) (res string) {
-	end := d.log.Start("SQLType", col)
-	defer func() { end.End(res) }()
 	return toYQLDataType(col.Type, col.IsAutoIncrement)
 }
 
@@ -239,8 +230,6 @@ func (d *YDB) LikeOperator(column string, wildcardBefore bool, pattern string, w
 }
 
 func (d *YDB) Default(col *migrator.Column) (res string) {
-	end := d.log.Start("Default", col)
-	defer func() { end.End(res) }()
 	if col.Type == migrator.DB_Bool {
 		bl, err := strconv.ParseBool(col.Default)
 		if err != nil {
@@ -255,45 +244,31 @@ func (d *YDB) Default(col *migrator.Column) (res string) {
 }
 
 func (d *YDB) BooleanValue(b bool) (res any) {
-	end := d.log.Start("BooleanValue", b)
-	defer func() { end.End(res) }()
 	return b
 }
 
 func (d *YDB) BooleanStr(b bool) (res string) {
-	end := d.log.Start("BooleanStr", b)
-	defer func() { end.End(res) }()
 	return strconv.FormatBool(b)
 }
 
 func (d *YDB) DateTimeFunc(s string) (res string) {
-	end := d.log.Start("DateTimeFunc", s)
-	defer func() { end.End(res) }()
-	return s
+	return fmt.Sprintf("Datetime64(%q)", s)
 }
 
 func (d *YDB) BatchSize() (res int) {
-	end := d.log.Start("BatchSize")
-	defer func() { end.End(res) }()
 	return 1000
 }
 
 func (d *YDB) UnionDistinct() (res string) {
-	end := d.log.Start("UnionDistinct")
-	defer func() { end.End(res) }()
 	return "UNION"
 }
 
 func (d *YDB) UnionAll() (res string) {
-	end := d.log.Start("UnionAll")
-	defer func() { end.End(res) }()
 	return "UNION ALL"
 }
 
 func (d *YDB) OrderBy(order string) (res string) {
-	end := d.log.Start("OrderBy", order)
-	defer func() { end.End(res) }()
-	return strings.ReplaceAll(order, "dashboard.title", "title")
+	return order
 }
 
 func (d *YDB) CreateIndexSQL(tableName string, index *migrator.Index) (res string) {
@@ -480,8 +455,7 @@ func (d *YDB) IndexCheckSQL(tableName, indexName string) (sql string, args []any
 	end := d.log.Start("IndexCheckSQL", tableName, indexName)
 	defer func() { end.End(sql, args) }()
 
-	return "SELECT Path FROM `.sys/partition_stats` where Path LIKE '%/'" +
-		" || ? || '/' || ? || '/indexImplTable'", []any{tableName, indexName}
+	return "SELECT Path FROM `.sys/partition_stats` WHERE EndsWith(Path, ?)", []any{"/" + tableName + "/" + indexName + "/indexImplTable"}
 }
 
 func (d *YDB) ColumnCheckSQL(tableName, columnName string) (sql string, args []any) {
@@ -555,14 +529,10 @@ func (d *YDB) ColStringNoPk(column *migrator.Column) (res string) {
 }
 
 func (d *YDB) Limit(limit int64) (res string) {
-	end := d.log.Start("Limit", limit)
-	defer func() { end.End(res) }()
 	return " LIMIT " + strconv.FormatInt(limit, 10)
 }
 
 func (d *YDB) LimitOffset(limit int64, offset int64) (res string) {
-	end := d.log.Start("LimitOffset", limit, offset)
-	defer func() { end.End(res) }()
 	return " LIMIT " + strconv.FormatInt(limit, 10) + " OFFSET " + strconv.FormatInt(offset, 10)
 }
 
@@ -652,7 +622,7 @@ func (d *YDB) CreateDatabaseFromSnapshot(ctx context.Context, engine *xorm.Engin
 func (d *YDB) IsUniqueConstraintViolation(err error) (ok bool) {
 	end := d.log.Start("IsUniqueConstraintViolation", err)
 	defer func() { end.End(ok) }()
-	return ydb.IsOperationErrorSchemeError(err)
+	return ydb.IsOperationError(err, Ydb.StatusIds_PRECONDITION_FAILED)
 }
 
 func (d *YDB) ErrorMessage(err error) (res string) {
@@ -806,21 +776,18 @@ func (d *YDB) Init(db *core.DB, uri *core.Uri, driverName, dataSource string) er
 
 	d.db = ydbDriver
 
-	//connector, err := ydb.Connector(ydbDriver,
-	//	ydb.WithQueryService(true),
-	//	ydb.WithFakeTx(ydb.QueryExecuteQueryMode),
-	//)
-	//if err != nil {
-	//	_ = ydbDriver.Close(context.Background())
-	//
-	//	return xerrors.WithStackTrace(err)
-	//}
-	//
-	//db.DB = sql.OpenDB(connector)
-	//
-	//return d.Base.Init(core.FromDB(db.DB), d, uri, driverName, dataSource)
+	cc, err := ydb.Connector(ydbDriver,
+		ydb.WithQueryService(true),
+	)
+	if err != nil {
+		return xerrors.WithStackTrace(err)
+	}
 
-	return d.Base.Init(db, d, uri, driverName, dataSource)
+	db.DB = sql.OpenDB(&connector{
+		c: cc,
+	})
+
+	return d.Base.Init(core.FromDB(db.DB), d, uri, driverName, dataSource)
 }
 
 func (d *YDB) GetIndexes(tableName string) (indexes map[string]*core.Index, err error) {
@@ -866,8 +833,6 @@ func (d *YDB) SetParams(tableParams map[string]string) {
 }
 
 func (d *YDB) absPath(tableName string) (res string) {
-	end := d.log.Start("absPath", tableName)
-	defer func() { end.End(res) }()
 	return d.db.Name() + "/" + tableName
 }
 
@@ -902,7 +867,7 @@ func (d *YDB) IsTableExist(
 func (d *YDB) TableCheckSql(tableName string) (sql string, args []any) {
 	end := d.log.Start("TableCheckSql", tableName)
 	defer func() { end.End(sql, args) }()
-	return "SELECT Path FROM `.sys/partition_stats` WHERE Path LIKE '%/' || ?", []any{tableName}
+	return "SELECT Path FROM `.sys/partition_stats` WHERE EndsWith(Path, ?)", []any{"/" + tableName}
 }
 
 func (d *YDB) AutoIncrStr() (res string) {
@@ -919,8 +884,6 @@ func (d *YDB) IsReserved(name string) (ok bool) {
 }
 
 func (d *YDB) SqlType(column *core.Column) (res string) {
-	end := d.log.Start("SqlType", column)
-	defer func() { end.End(res) }()
 	return toYQLDataType(column.SQLType.Name, column.IsAutoIncrement)
 }
 
@@ -1169,98 +1132,14 @@ func (d *YDB) GetTables() (tables []*core.Table, err error) {
 	return tables, nil
 }
 
-// CreateTableSQLForCore generates `CREATE TABLE` YQL for xorm/core. Not part of core.Dialect.
-func (d *YDB) CreateTableSQLForCore(
-	ctx context.Context,
-	_ any,
-	table *core.Table,
-	tableName string,
-) (sql string, ok bool, err error) {
-	end := d.log.Start("CreateTableSQLForCore", ctx, table, tableName)
-	defer func() { end.End(sql, ok, err) }()
-	tableName = d.Quote(tableName)
-
-	var buf strings.Builder
-	buf.WriteString("CREATE TABLE ")
-	buf.WriteString(tableName)
-	buf.WriteString(" ( ")
-
-	// 	build primary key
-	if len(table.PrimaryKeys) == 0 {
-		return "", false, xerrors.WithStackTrace(errors.New("table must have at least one primary key"))
-	}
-	pk := make([]string, len(table.PrimaryKeys))
-	pkMap := make(map[string]bool)
-	for i := 0; i < len(table.PrimaryKeys); i++ {
-		pk[i] = d.Quote(table.PrimaryKeys[i])
-		pkMap[pk[i]] = true
-	}
-	var primaryKeyBuf strings.Builder
-	primaryKeyBuf.WriteString("PRIMARY KEY ( ")
-	primaryKeyBuf.WriteString(strings.Join(pk, ", "))
-	primaryKeyBuf.WriteString(" )")
-	primaryKey := primaryKeyBuf.String()
-
-	// build column
-	columnsList := make([]string, 0, len(table.Columns()))
-	for _, c := range table.Columns() {
-		columnName := d.Quote(c.Name)
-		dataType := d.SqlType(c)
-		if _, isPk := pkMap[columnName]; isPk {
-			columnsList = append(columnsList, columnName+" "+dataType+" NOT NULL")
-		} else {
-			columnsList = append(columnsList, columnName+" "+dataType)
-		}
-	}
-	joinColumns := strings.Join(columnsList, ", ")
-
-	buf.WriteString(strings.Join([]string{joinColumns, primaryKey}, ", "))
-	buf.WriteString(" ) ")
-
-	if len(d.tableParams) > 0 {
-		params := make([]string, 0, len(d.tableParams))
-		for param, value := range d.tableParams {
-			if param == "" || value == "" {
-				continue
-			}
-			params = append(params, param+" = "+value)
-		}
-		if len(params) > 0 {
-			buf.WriteString("WITH ( ")
-			buf.WriteString(strings.Join(params, ", "))
-			buf.WriteString(" ) ")
-		}
-	}
-
-	buf.WriteString("; ")
-
-	return buf.String(), true, nil
-}
-
-func (d *YDB) DropTableSQL(tableName string) (sql string, ok bool) {
-	end := d.log.Start("DropTableSQL", tableName)
-	defer func() { end.End(sql, ok) }()
-	tableName = d.Quote(tableName)
-
-	var buf strings.Builder
-	buf.WriteString("DROP TABLE ")
-	buf.WriteString(tableName)
-	buf.WriteString(";")
-	return buf.String(), false
-}
-
-func (d *YDB) Filters() (res []core.Filter) {
-	return filters.Filters
-}
-
-func (d *YDB) IsRetryable(err error) (ok bool) {
-	end := d.log.Start("IsRetryable", err)
-	defer func() { end.End(ok) }()
-	return retry.Check(err).MustRetry(false)
+func (d *YDB) Filters() []core.Filter {
+	return nil
 }
 
 func (d *YDB) RetryOnError(err error) (ok bool) {
-	end := d.log.Start("RetryOnError", err)
-	defer func() { end.End(ok) }()
-	return d.IsRetryable(err)
+	if err == nil {
+		return false
+	}
+
+	return retry.Check(err).MustRetry(false)
 }

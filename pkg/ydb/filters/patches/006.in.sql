@@ -1,8 +1,1 @@
-		CREATE TABLE seed_assignment_temp (
-		    id INTEGER PRIMARY KEY AUTOINCREMENT,
-			builtin_role TEXT,
-			action TEXT,
-			scope TEXT,
-			role_name TEXT
-		);
-	
+SELECT (SELECT COUNT(*) FROM `user` WHERE is_service_account = true) AS serviceaccounts,(SELECT COUNT(*) FROM `api_key`WHERE service_account_id IS NOT NULL ) AS serviceaccount_tokens,(SELECT COUNT(*) FROM `org_user` AS ou JOIN `user` AS u ON u.id = ou.user_id WHERE u.is_disabled = false AND u.is_service_account = true AND ou.role=?) AS serviceaccounts_with_no_role

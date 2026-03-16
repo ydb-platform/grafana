@@ -1,6 +1,18 @@
-INSERT INTO
-  seed_assignment_temp
+UPSERT INTO folder (
+    uid,
+    org_id,
+    title,
+    created,
+    updated
+)
 SELECT
-  *
+    COALESCE(uid, ""),
+    org_id,
+    title,
+    created,
+    updated
 FROM
-  seed_assignment
+    dashboard
+WHERE
+    is_folder
+;

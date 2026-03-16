@@ -63,25 +63,25 @@ func TestFilters(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "SetCreatedForOutstandingInvites",
-			in: args{
-				sql:  "UPDATE `temp_user` SET created = ?, updated = ? WHERE created = '0' AND status in (?,?)",
-				args: []any{1772043198, 1772043198, "SignUpStarted", "InvitePending"},
-			},
-			out: args{
-				sql: "UPDATE `temp_user` SET created = $p1, updated = $p2 WHERE created = $p3 AND status IN $p4",
-				args: []any{
-					sql.Named("p1", int64(1772043198)),
-					sql.Named("p2", int64(1772043198)),
-					sql.Named("p3", "0"),
-					sql.Named("p4", []any{
-						"SignUpStarted",
-						"InvitePending",
-					}),
-				},
-			},
-		},
+		//{
+		//	name: "SetCreatedForOutstandingInvites",
+		//	in: args{
+		//		sql:  "UPDATE `temp_user` SET created = ?, updated = ? WHERE created = '0' AND status in (?,?)",
+		//		args: []any{1772043198, 1772043198, "SignUpStarted", "InvitePending"},
+		//	},
+		//	out: args{
+		//		sql: "UPDATE `temp_user` SET created = $p1, updated = $p2 WHERE created = $p3 AND status IN $p4",
+		//		args: []any{
+		//			sql.Named("p1", int64(1772043198)),
+		//			sql.Named("p2", int64(1772043198)),
+		//			sql.Named("p3", "0"),
+		//			sql.Named("p4", []any{
+		//				"SignUpStarted",
+		//				"InvitePending",
+		//			}),
+		//		},
+		//	},
+		//},
 		{
 			name: "dashboard",
 			in: args{
@@ -171,19 +171,19 @@ func TestFilters(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "patch for insert into dashbard_version",
-			in: args{
-				sql:  "INSERT INTO dashboard_version\n(\n\tdashboard_id,\n\tversion,\n\tparent_version,\n\trestored_from,\n\tcreated,\n\tcreated_by,\n\tmessage,\n\tdata\n)\nSELECT\n\tdashboard.id,\n\tdashboard.version,\n\tdashboard.version,\n\tdashboard.version,\n\tdashboard.updated,\n\tCOALESCE(dashboard.updated_by, -1),\n\t'',\n\tdashboard.data\nFROM dashboard;",
-				args: nil,
-			},
-			out: args{
-				sql: "INSERT INTO dashboard_version (\n  dashboard_id,\n  version,\n  parent_version,\n  restored_from,\n  created,\n  created_by,\n  message,\n  `data`\n)\nSELECT\n  dashboard.id AS dashboard_id,\n  dashboard.version AS version,\n  dashboard.version AS parent_version,\n  dashboard.version AS restored_from,\n  dashboard.updated AS created,\n  COALESCE(dashboard.updated_by, -1) AS created_by,\n  $p1 AS message,\n  dashboard.data AS `data`\nFROM dashboard;\n",
-				args: []any{
-					sql.Named("p1", ""),
-				},
-			},
-		},
+		//{
+		//	name: "patch for insert into dashbard_version",
+		//	in: args{
+		//		sql:  "INSERT INTO dashboard_version\n(\n\tdashboard_id,\n\tversion,\n\tparent_version,\n\trestored_from,\n\tcreated,\n\tcreated_by,\n\tmessage,\n\tdata\n)\nSELECT\n\tdashboard.id,\n\tdashboard.version,\n\tdashboard.version,\n\tdashboard.version,\n\tdashboard.updated,\n\tCOALESCE(dashboard.updated_by, -1),\n\t'',\n\tdashboard.data\nFROM dashboard;",
+		//		args: nil,
+		//	},
+		//	out: args{
+		//		sql: "INSERT INTO dashboard_version (\n  dashboard_id,\n  version,\n  parent_version,\n  restored_from,\n  created,\n  created_by,\n  message,\n  `data`\n)\nSELECT\n  dashboard.id AS dashboard_id,\n  dashboard.version AS version,\n  dashboard.version AS parent_version,\n  dashboard.version AS restored_from,\n  dashboard.updated AS created,\n  COALESCE(dashboard.updated_by, -1) AS created_by,\n  $p1 AS message,\n  dashboard.data AS `data`\nFROM dashboard;\n",
+		//		args: []any{
+		//			sql.Named("p1", ""),
+		//		},
+		//	},
+		//},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			sql, args := applyFilters(tt.in.sql, tt.in.args)

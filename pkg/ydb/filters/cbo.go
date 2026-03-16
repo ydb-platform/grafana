@@ -7,12 +7,12 @@ import (
 )
 
 var (
-	_ core.Filter = (*CostBasedOptimizer)(nil)
+	_ core.Filter = (*EnableCostBasedOptimizer)(nil)
 )
 
-type CostBasedOptimizer struct{}
+type EnableCostBasedOptimizer struct{}
 
-func (f *CostBasedOptimizer) Do(sql string, dialect core.Dialect, table *core.Table) string {
+func (f *EnableCostBasedOptimizer) Do(sql string, dialect core.Dialect, table *core.Table) string {
 	if f.shouldUseCostBasedOptimization(sql) {
 		return f.prependPragma(sql)
 	}
@@ -22,7 +22,7 @@ func (f *CostBasedOptimizer) Do(sql string, dialect core.Dialect, table *core.Ta
 // shouldUseCostBasedOptimization returns true for "heavy" queries that typically benefit from
 // ydb.CostBasedOptimization (dashboard/folder list with permission subqueries). Returns false for
 // simple lookups where the pragma often produces worse plans.
-func (f *CostBasedOptimizer) shouldUseCostBasedOptimization(query string) bool {
+func (f *EnableCostBasedOptimizer) shouldUseCostBasedOptimization(query string) bool {
 	q := strings.ToUpper(query)
 	hasPermission := strings.Contains(q, "PERMISSION")
 	hasDashboardOrFolder := strings.Contains(q, "DASHBOARD") || strings.Contains(q, "FOLDER")
@@ -46,7 +46,7 @@ func (f *CostBasedOptimizer) shouldUseCostBasedOptimization(query string) bool {
 
 const ydbCostBasedOptimizationPragma = `PRAGMA ydb.CostBasedOptimization = "on";` + "\n"
 
-func (f *CostBasedOptimizer) prependPragma(query string) string {
+func (f *EnableCostBasedOptimizer) prependPragma(query string) string {
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
 		return query

@@ -1,15 +1,24 @@
 CREATE TABLE IF NOT EXISTS `permission` (
-  `id` Serial NOT NULL,
-  `role_id` Int64 NOT NULL,
-  `action` Text NOT NULL,
-  `scope` Text NOT NULL,
-  `created` Datetime64 NOT NULL,
-  `updated` Datetime64 NOT NULL,
-  `kind` Text NOT NULL DEFAULT '',
-  `attribute` Text NOT NULL DEFAULT '',
-  `identifier` Text NOT NULL DEFAULT '',
-  PRIMARY KEY (`id`),
-  INDEX `IDX_permission_identifier` GLOBAL SYNC ON (`identifier`),
-  INDEX `UQE_permission_action_scope_role_id` GLOBAL UNIQUE SYNC ON (`action`, `scope`, `role_id`),
-  INDEX `IDX_permission_role_id_action` GLOBAL SYNC ON (`role_id`, `action`),
+    `id` Serial8 NOT NULL,
+    `role_id` Int64,
+    `action` Text,
+    `scope` Text,
+    `created` Datetime64,
+    `updated` Datetime64,
+    `kind` Text,
+    `attribute` Text,
+    `identifier` Text,
+    INDEX `IDX_permission_identifier` GLOBAL ASYNC ON (`identifier`),
+    INDEX `IDX_permission_role_id_action` GLOBAL ASYNC ON (`role_id`, `action`),
+    INDEX `UQE_permission_action_scope_role_id` GLOBAL UNIQUE SYNC ON (`action`, `scope`, `role_id`),
+    FAMILY `default` (COMPRESSION = 'off'),
+    PRIMARY KEY (`id`)
+)
+WITH (
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_PARTITION_SIZE_MB = 2048,
+    AUTO_PARTITIONING_BY_LOAD = ENABLED
 );
+
+
+

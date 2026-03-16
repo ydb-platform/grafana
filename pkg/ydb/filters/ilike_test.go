@@ -64,7 +64,7 @@ func TestILike(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &ILike{}
+			f := &ConvertILikeToLikeLowerCase{}
 			require.Equal(t, tt.out, f.Do(tt.in, nil, nil))
 		})
 	}

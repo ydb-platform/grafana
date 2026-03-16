@@ -8,17 +8,17 @@ import (
 )
 
 var (
-	_ core.Filter         = (*String)(nil)
-	_ core.FilterWithArgs = (*String)(nil)
+	_ core.Filter         = (*ConvertStringToDatetime64)(nil)
+	_ core.FilterWithArgs = (*ConvertStringToDatetime64)(nil)
 )
 
-type String struct{}
+type ConvertStringToDatetime64 struct{}
 
-func (f *String) Do(sql string, _ core.Dialect, _ *core.Table) string {
-	return sql
+func (f *ConvertStringToDatetime64) Do(sql string, _ core.Dialect, _ *core.Table) string {
+	panic("unexpected call Do, expected DoWithArgs")
 }
 
-func (f *String) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
+func (f *ConvertStringToDatetime64) DoWithArgs(sql string, _ core.Dialect, _ *core.Table, args ...any) (string, []any) {
 	for i := range args {
 		switch v := args[i].(type) {
 		case string:

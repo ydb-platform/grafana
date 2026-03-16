@@ -86,7 +86,7 @@ func TestLiteral(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			f := &Literal{}
+			f := &ExtractLiteralToArgs{}
 			sql, args := f.DoWithArgs(tt.in.sql, nil, nil, tt.in.args...)
 			require.Equal(t, tt.out.sql, sql)
 			require.Equal(t, tt.out.args, args)

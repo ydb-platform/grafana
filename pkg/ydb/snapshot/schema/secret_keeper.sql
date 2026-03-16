@@ -1,16 +1,23 @@
 CREATE TABLE IF NOT EXISTS `secret_keeper` (
-  `guid` Text NOT NULL,
-  PRIMARY KEY (`guid`),
-  `name` Text NOT NULL,
-  `namespace` Text NOT NULL,
-  `annotations` Text,
-  `labels` Text,
-  `created` Int64 NOT NULL,
-  `created_by` Text NOT NULL,
-  `updated` Int64 NOT NULL,
-  `updated_by` Text NOT NULL,
-  `description` Text NOT NULL,
-  `type` Text NOT NULL,
-  `payload` Text,
-  INDEX `UQE_secret_keeper_namespace_name` GLOBAL UNIQUE SYNC ON (`namespace`, `name`)
+    `guid` Text,
+    `name` Text,
+    `namespace` Text,
+    `annotations` Text,
+    `labels` Text,
+    `created` Int64,
+    `created_by` Text,
+    `updated` Int64,
+    `updated_by` Text,
+    `description` Text,
+    `type` Text,
+    `payload` Text,
+    INDEX `UQE_secret_keeper_namespace_name` GLOBAL UNIQUE SYNC ON (`namespace`, `name`),
+    FAMILY `default` (COMPRESSION = 'off'),
+    PRIMARY KEY (`guid`)
+)
+WITH (
+    AUTO_PARTITIONING_BY_SIZE = ENABLED,
+    AUTO_PARTITIONING_PARTITION_SIZE_MB = 2048,
+    AUTO_PARTITIONING_BY_LOAD = ENABLED
 );
+

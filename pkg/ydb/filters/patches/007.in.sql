@@ -1,1 +1,3 @@
-INSERT INTO seed_assignment_temp (builtin_role, action, scope, role_name) SELECT * FROM seed_assignment;
+INSERT INTO folder (uid, org_id, title, created, updated)
+SELECT * FROM (SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = 1) AS derived
+ON DUPLICATE KEY UPDATE title=derived.title, updated=derived.updated
