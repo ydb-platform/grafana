@@ -13,7 +13,7 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3/table/types"
 )
 
-//go:embed schema/*.sql
+//go:embed */*.sql
 var snapshotFS embed.FS
 
 type sqlFile struct {
@@ -21,8 +21,8 @@ type sqlFile struct {
 	content string
 }
 
-func readSnapshotSQL() ([]sqlFile, error) {
-	entries, err := snapshotFS.ReadDir("schema")
+func readSnapshotSQL(version string) ([]sqlFile, error) {
+	entries, err := snapshotFS.ReadDir(version)
 	if err != nil {
 		return nil, xerrors.WithStackTrace(fmt.Errorf("snapshot: read dir: %v", err))
 	}
@@ -809,7 +809,7 @@ func createTableMigrationLog(ctx context.Context, db *ydb.Driver, migrationLogTa
 }
 
 func Apply(ctx context.Context, db *ydb.Driver, migrationLogTableName string) error {
-	sqlFiles, err := readSnapshotSQL()
+	sqlFiles, err := readSnapshotSQL("v12.2.1")
 	if err != nil {
 		return xerrors.WithStackTrace(err)
 	}

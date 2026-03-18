@@ -219,14 +219,20 @@ func (d *YDB) SQLType(col *migrator.Column) (res string) {
 func (d *YDB) LikeOperator(column string, wildcardBefore bool, pattern string, wildcardAfter bool) (sql string, param string) {
 	end := d.log.Start("LikeOperator", column, wildcardBefore, pattern, wildcardAfter)
 	defer func() { end.End(sql, param) }()
-	param = pattern
+
+	if wildcardBefore && wildcardAfter {
+		return "Unicode::ToLower(" + column + ") LIKE ?", "%" + strings.ToLower(pattern) + "%"
+	}
+
 	if wildcardBefore {
-		param = "%" + param
+		return "EndsWith(Unicode::ToLower(" + column + "), ?)", strings.ToLower(pattern)
 	}
+
 	if wildcardAfter {
-		param = param + "%"
+		return "StartsWith(Unicode::ToLower(" + column + "), ?)", strings.ToLower(pattern)
 	}
-	return column + " ILIKE ?", param
+
+	return "Unicode::ToLower(" + column + ")" + " == ?", strings.ToLower(pattern)
 }
 
 func (d *YDB) Default(col *migrator.Column) (res string) {
@@ -754,8 +760,6 @@ func (d *YDB) Update(ctx context.Context, tx *session.SessionTx, tableName strin
 }
 
 func (d *YDB) Concat(s ...string) (res string) {
-	end := d.log.Start("Concat", s)
-	defer func() { end.End(res) }()
 	return strings.Join(s, " || ")
 }
 
@@ -776,6 +780,7 @@ func (d *YDB) Init(db *core.DB, uri *core.Uri, driverName, dataSource string) er
 
 	d.db = ydbDriver
 
+	// wrap driver for re-write queries
 	cc, err := ydb.Connector(ydbDriver,
 		ydb.WithQueryService(true),
 	)
