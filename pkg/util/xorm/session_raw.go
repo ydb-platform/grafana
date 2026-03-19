@@ -13,21 +13,19 @@ import (
 	"xorm.io/builder"
 )
 
-func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) (sql string, args []any) {
-	session.lastSQL, session.lastSQLArgs = core.QueryPreprocess(
-		session.engine.dialect,
-		session.statement.RefTable,
-		*sqlStr,
-		paramStr...,
-	)
+func (session *Session) queryPreprocess(sqlStr *string, paramStr ...any) {
+	for _, filter := range session.engine.dialect.Filters() {
+		*sqlStr = filter.Do(*sqlStr, session.engine.dialect, session.statement.RefTable)
+	}
 
-	return session.lastSQL, session.lastSQLArgs
+	session.lastSQL = *sqlStr
+	session.lastSQLArgs = paramStr
 }
 
 func (session *Session) queryRows(sqlStr string, args ...any) (*core.Rows, error) {
 	defer session.resetStatement()
 
-	sqlStr, args = session.queryPreprocess(&sqlStr, args...)
+	session.queryPreprocess(&sqlStr, args...)
 
 	if session.showSQL {
 		session.lastSQL = sqlStr
@@ -150,7 +148,7 @@ func (session *Session) queryBytes(sqlStr string, args ...any) ([]map[string][]b
 func (session *Session) exec(sqlStr string, args ...any) (sql.Result, error) {
 	defer session.resetStatement()
 
-	sqlStr, args = session.queryPreprocess(&sqlStr, args...)
+	session.queryPreprocess(&sqlStr, args...)
 
 	if session.engine.showSQL {
 		if session.engine.showExecTime {
