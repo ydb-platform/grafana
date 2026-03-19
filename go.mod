@@ -631,6 +631,14 @@ require (
 	sigs.k8s.io/yaml v1.5.0 // indirect
 )
 
+require (
+	github.com/ydb-platform/ydb-go-sdk/v3 v3.127.0
+	github.com/ydb-platform/ydb-go-yc-metadata v0.6.1
+	github.com/ydb-platform/yql-parsers v0.0.0-20260114120254-eb0b4771c57b
+)
+
+require github.com/ydb-platform/ydb-go-genproto v0.0.0-20251125145508-6d7ef87db5cb
+
 // Use fork of crewjam/saml with fixes for some issues until changes get merged into upstream
 replace github.com/crewjam/saml => github.com/grafana/saml v0.4.15-0.20240917091248-ae3bbdad8a56
 
@@ -656,3 +664,5 @@ exclude k8s.io/client-go v12.0.0+incompatible
 // only used to run tests and not required for building the Grafana binary.
 // Since the test data doesn't contain a license file we exclude it.
 exclude github.com/RoaringBitmap/real-roaring-datasets v0.0.0-20190726190000-eb7c87156f76
+
+replace github.com/ydb-platform/ydb-go-sdk/v3 => ../ydb-go-sdk
