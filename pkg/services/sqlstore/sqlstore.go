@@ -365,9 +365,6 @@ func (ss *SQLStore) GetMigrationLockAttemptTimeout() int {
 }
 
 func (ss *SQLStore) RecursiveQueriesAreSupported() (bool, error) {
-	ss.recursiveQueriesMu.Lock()
-	defer ss.recursiveQueriesMu.Unlock()
-	if ss.recursiveQueriesAreSupported != nil {
 		return *ss.recursiveQueriesAreSupported, nil
 	}
 	recursiveQueriesAreSupported := func() (bool, error) {
