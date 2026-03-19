@@ -1,9 +1,6 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"strings"
-)
+import "strings"
 
 var _ Binder = (*ConvertILikeToLikeLowerCase)(nil)
 
@@ -76,7 +73,7 @@ func rightOperand(sql string, ilikeEnd int) (start, end int) {
 	return start, end
 }
 
-func (f *ConvertILikeToLikeLowerCase) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (f *ConvertILikeToLikeLowerCase) Rebind(sql string, args ...any) (string, []any, error) {
 	if !strings.Contains(sql, "ILIKE") && !strings.Contains(sql, "ilike") {
 		return sql, args, nil
 	}

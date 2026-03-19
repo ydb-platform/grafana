@@ -19,6 +19,7 @@ LEFT JOIN (
 ) ua ON u.id = ua.user_id
 WHERE
     u.is_service_account = ?
+    AND u.last_seen_at > ?
     AND ua.rn = 1
 ORDER BY
     u.login ASC,

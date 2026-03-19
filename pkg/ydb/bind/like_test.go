@@ -1,23 +1,12 @@
 package bind
 
 import (
-	"database/sql/driver"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestConvertLikeToStartsWithEndsWith(t *testing.T) {
-	makeArgs := func(vals ...any) []driver.NamedValue {
-		if len(vals) == 0 {
-			return nil
-		}
-		out := make([]driver.NamedValue, len(vals))
-		for i, v := range vals {
-			out[i] = driver.NamedValue{Value: v}
-		}
-		return out
-	}
 	for _, tt := range []struct {
 		name   string
 		inSQL  string
@@ -49,13 +38,10 @@ func TestConvertLikeToStartsWithEndsWith(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &ConvertLikeToStartsWithEndsWith{}
-			outSQL, outArgs, err := f.Rebind(tt.inSQL, makeArgs(tt.inArgs...)...)
+			outSQL, outArgs, err := f.Rebind(tt.inSQL, tt.inArgs...)
 			require.NoError(t, err)
 			require.Equal(t, tt.expSQL, outSQL)
-			require.Len(t, outArgs, len(tt.expArgs))
-			for i := range tt.expArgs {
-				require.Equal(t, tt.expArgs[i], outArgs[i].Value)
-			}
+			require.Equal(t, tt.expArgs, outArgs)
 		})
 	}
 }

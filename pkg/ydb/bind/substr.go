@@ -1,9 +1,6 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"strings"
-)
+import "strings"
 
 var _ Binder = (*ConvertSubstrToSubstring)(nil)
 
@@ -12,7 +9,7 @@ type ConvertSubstrToSubstring struct{}
 const substrFrom = "SUBSTR"
 const substrTo = "SUBSTRING"
 
-func (ConvertSubstrToSubstring) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (ConvertSubstrToSubstring) Rebind(sql string, args ...any) (string, []any, error) {
 	if !strings.Contains(sql, "SUBSTR") {
 		return sql, args, nil
 	}

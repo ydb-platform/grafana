@@ -1,20 +1,12 @@
 package bind
 
 import (
-	"database/sql/driver"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestNumbers(t *testing.T) {
-	makeArgs := func(vals ...any) []driver.NamedValue {
-		out := make([]driver.NamedValue, len(vals))
-		for i, v := range vals {
-			out[i] = driver.NamedValue{Value: v}
-		}
-		return out
-	}
 	for _, tt := range []struct {
 		name   string
 		sql    string
@@ -36,13 +28,10 @@ func TestNumbers(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &ConvertNumbersToInt64{}
-			outSQL, outArgs, err := f.Rebind(tt.sql, makeArgs(tt.args...)...)
+			outSQL, outArgs, err := f.Rebind(tt.sql, tt.args...)
 			require.NoError(t, err)
 			require.Equal(t, tt.sql, outSQL)
-			require.Len(t, outArgs, len(tt.expArgs))
-			for i := range tt.expArgs {
-				require.Equal(t, tt.expArgs[i], outArgs[i].Value)
-			}
+			require.Equal(t, tt.expArgs, outArgs)
 		})
 	}
 }

@@ -1,9 +1,6 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"strings"
-)
+import "strings"
 
 var _ Binder = (*Lower)(nil)
 
@@ -12,7 +9,7 @@ type Lower struct{}
 const lowerFrom = "LOWER"
 const lowerTo = "Unicode::ToLower"
 
-func (Lower) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (Lower) Rebind(sql string, args ...any) (string, []any, error) {
 	if !strings.Contains(sql, lowerFrom) {
 		return sql, args, nil
 	}

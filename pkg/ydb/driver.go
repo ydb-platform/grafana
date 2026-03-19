@@ -99,6 +99,36 @@ var execBinders = []bind.Binder{
 	&bind.ConvertPositionalArgsToYdbNamedParameters{},
 }
 
+func namedToAny(in []driver.NamedValue) []any {
+	out := make([]any, 0, len(in))
+	for i := range in {
+		if in[i].Name == "" {
+			out = append(out, in[i].Value)
+		} else {
+			out = append(out, sql.Named(in[i].Name, in[i].Value))
+		}
+	}
+	return out
+}
+
+func anyToNamed(in []any) []driver.NamedValue {
+	out := make([]driver.NamedValue, 0, len(in))
+	for i := range in {
+		switch t := in[i].(type) {
+		case sql.NamedArg:
+			out = append(out, driver.NamedValue{
+				Name:  t.Name,
+				Value: t.Value,
+			})
+		case driver.NamedValue:
+			out = append(out, t)
+		default:
+			panic(fmt.Sprintf("unexpected arg %d type %T", i, t))
+		}
+	}
+	return out
+}
+
 func queryContext(ctx context.Context, executor driver.QueryerContext, query string, args []driver.NamedValue) (_ driver.Rows, err error) {
 	if strings.Contains(query, "WITH RECURSIVE") {
 		return nil, xerrors.WithStackTrace(&mysql.MySQLError{
@@ -106,14 +136,16 @@ func queryContext(ctx context.Context, executor driver.QueryerContext, query str
 		})
 	}
 
+	params := namedToAny(args)
+
 	for i, b := range queryBinders {
-		query, args, err = b.Rebind(query, args...)
+		query, params, err = b.Rebind(query, params...)
 		if err != nil {
 			return nil, xerrors.WithStackTrace(fmt.Errorf("%d rebind failed: %w", i, err))
 		}
 	}
 
-	r, err := executor.QueryContext(ctx, query, args)
+	r, err := executor.QueryContext(ctx, query, anyToNamed(params))
 	if err != nil {
 		var b strings.Builder
 		for _, arg := range args {
@@ -127,14 +159,16 @@ func queryContext(ctx context.Context, executor driver.QueryerContext, query str
 }
 
 func execContext(ctx context.Context, executor driver.ExecerContext, query string, args []driver.NamedValue) (_ driver.Result, err error) {
+	params := namedToAny(args)
+
 	for i, b := range execBinders {
-		query, args, err = b.Rebind(query, args...)
+		query, params, err = b.Rebind(query, params...)
 		if err != nil {
 			return nil, xerrors.WithStackTrace(fmt.Errorf("%d rebind failed: %w", i, err))
 		}
 	}
 
-	r, err := executor.ExecContext(ctx, query, args)
+	r, err := executor.ExecContext(ctx, query, anyToNamed(params))
 	if err != nil {
 		var b strings.Builder
 		for _, arg := range args {
@@ -281,6 +315,7 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			opts.Isolation = driver.IsolationLevel(sql.LevelSerializable)
 		}
 	}
+
 	t, err := c.cc.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, xerrors.WithStackTrace(err)

@@ -1,7 +1,5 @@
 package bind
 
-import "database/sql/driver"
-
 var _ Binder = (*ConvertInArgsToList)(nil)
 
 type ConvertInArgsToList struct{}
@@ -77,7 +75,7 @@ func (f *ConvertInArgsToList) findInClauses(sql string) []ydbInRange {
 	return ranges
 }
 
-func (f *ConvertInArgsToList) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (f *ConvertInArgsToList) Rebind(sql string, args ...any) (string, []any, error) {
 	ranges := f.findInClauses(sql)
 	if len(ranges) == 0 {
 		return sql, args, nil
@@ -106,7 +104,7 @@ func (f *ConvertInArgsToList) Rebind(sql string, args ...driver.NamedValue) (str
 		}
 	}
 
-	newArgs := make([]driver.NamedValue, 0, len(args))
+	newArgs := make([]any, 0, len(args))
 	argIdx := 0
 	for _, pos := range qPositions {
 		var in *ydbInRange
@@ -122,9 +120,9 @@ func (f *ConvertInArgsToList) Rebind(sql string, args ...driver.NamedValue) (str
 		if in != nil && isFirst {
 			slice := make([]any, in.count)
 			for k := 0; k < in.count && argIdx+k < len(args); k++ {
-				slice[k] = args[argIdx+k].Value
+				slice[k] = args[argIdx+k]
 			}
-			newArgs = append(newArgs, driver.NamedValue{Value: slice})
+			newArgs = append(newArgs, slice)
 			argIdx += in.count
 		} else if in == nil {
 			if argIdx < len(args) {

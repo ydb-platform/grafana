@@ -1,9 +1,6 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"strings"
-)
+import "strings"
 
 var _ Binder = (*ConvertLikeToStartsWithEndsWith)(nil)
 
@@ -158,7 +155,7 @@ func likePatternKind(s string) (kind string, trimmed string) {
 	return "", s
 }
 
-func (f *ConvertLikeToStartsWithEndsWith) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (f *ConvertLikeToStartsWithEndsWith) Rebind(sql string, args ...any) (string, []any, error) {
 	if !strings.Contains(sql, " LIKE ") && !strings.Contains(sql, " like ") {
 		return sql, args, nil
 	}
@@ -186,10 +183,8 @@ func (f *ConvertLikeToStartsWithEndsWith) Rebind(sql string, args ...driver.Name
 			qPositions = append(qPositions, i)
 		}
 	}
-	argsCopy := make([]driver.NamedValue, len(args))
-	for i := range args {
-		argsCopy[i] = args[i]
-	}
+	argsCopy := make([]any, len(args))
+	copy(argsCopy, args)
 	argIdx := 0
 	var out strings.Builder
 	pos := 0
@@ -257,7 +252,7 @@ func (f *ConvertLikeToStartsWithEndsWith) Rebind(sql string, args ...driver.Name
 				pos = rightEnd
 				continue
 			}
-			if s, ok := argsCopy[argIndex].Value.(string); ok {
+			if s, ok := argsCopy[argIndex].(string); ok {
 				pattern = s
 			}
 		} else {
@@ -279,7 +274,7 @@ func (f *ConvertLikeToStartsWithEndsWith) Rebind(sql string, args ...driver.Name
 			out.WriteString(sql[leftStart:leftEnd])
 			if isPlaceholder {
 				out.WriteString(", ?)")
-				argsCopy[argIndex].Value = trimmed
+				argsCopy[argIndex] = trimmed
 			} else {
 				if quoteChar == 0 {
 					quoteChar = '\''
@@ -296,7 +291,7 @@ func (f *ConvertLikeToStartsWithEndsWith) Rebind(sql string, args ...driver.Name
 			out.WriteString(sql[leftStart:leftEnd])
 			if isPlaceholder {
 				out.WriteString(", ?)")
-				argsCopy[argIndex].Value = trimmed
+				argsCopy[argIndex] = trimmed
 			} else {
 				if quoteChar == 0 {
 					quoteChar = '\''

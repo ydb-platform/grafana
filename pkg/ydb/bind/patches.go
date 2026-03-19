@@ -1,7 +1,6 @@
 package bind
 
 import (
-	"database/sql/driver"
 	"embed"
 	"fmt"
 	"strings"
@@ -71,7 +70,7 @@ func minify(s string) string {
 	return strings.TrimSpace(strings.Join(ss, " "))
 }
 
-func (p *Patches) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (p *Patches) Rebind(sql string, args ...any) (string, []any, error) {
 	if e, ok := p.patches[minify(sql)]; ok {
 		if e.Count.Add(1) == 1 {
 			fmt.Printf("[YDB] patch %q excluded from %v\n", e.name, p.UnusedPatches())

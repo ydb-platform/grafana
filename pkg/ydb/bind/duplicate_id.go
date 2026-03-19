@@ -1,14 +1,11 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"strings"
-)
+import "strings"
 
 var _ Binder = (*ReduceDuplicateIdInSelect)(nil)
 
 type ReduceDuplicateIdInSelect struct{}
 
-func (ReduceDuplicateIdInSelect) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (ReduceDuplicateIdInSelect) Rebind(sql string, args ...any) (string, []any, error) {
 	return strings.ReplaceAll(sql, "SELECT `id`, `id`, ", "SELECT `id`, "), args, nil
 }

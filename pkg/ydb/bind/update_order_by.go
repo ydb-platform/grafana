@@ -1,15 +1,12 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"strings"
-)
+import "strings"
 
 var _ Binder = (*RemoveOrderByFromUpdate)(nil)
 
 type RemoveOrderByFromUpdate struct{}
 
-func (RemoveOrderByFromUpdate) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (RemoveOrderByFromUpdate) Rebind(sql string, args ...any) (string, []any, error) {
 	trimmed := strings.TrimSpace(sql)
 	if len(trimmed) < 7 {
 		return sql, args, nil

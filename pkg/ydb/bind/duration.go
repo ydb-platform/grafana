@@ -1,19 +1,19 @@
 package bind
 
-import (
-	"database/sql/driver"
-	"time"
-)
+import "time"
 
 var _ Binder = (*ConvertDurationToInt64)(nil)
 
 type ConvertDurationToInt64 struct{}
 
-func (f *ConvertDurationToInt64) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (f *ConvertDurationToInt64) Rebind(sql string, args ...any) (string, []any, error) {
+	out := make([]any, len(args))
 	for i := range args {
-		if d, has := args[i].Value.(time.Duration); has {
-			args[i].Value = int64(d)
+		if d, ok := args[i].(time.Duration); ok {
+			out[i] = int64(d)
+		} else {
+			out[i] = args[i]
 		}
 	}
-	return sql, args, nil
+	return sql, out, nil
 }

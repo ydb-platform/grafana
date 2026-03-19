@@ -1,7 +1,6 @@
 package bind
 
 import (
-	"database/sql/driver"
 	"time"
 
 	"github.com/ydb-platform/ydb-go-sdk/v3/table/types"
@@ -11,14 +10,17 @@ var _ Binder = (*ConvertTimeToDatetime64)(nil)
 
 type ConvertTimeToDatetime64 struct{}
 
-func (f *ConvertTimeToDatetime64) Rebind(sql string, args ...driver.NamedValue) (string, []driver.NamedValue, error) {
+func (f *ConvertTimeToDatetime64) Rebind(sql string, args ...any) (string, []any, error) {
+	out := make([]any, len(args))
 	for i := range args {
-		switch t := args[i].Value.(type) {
+		switch t := args[i].(type) {
 		case time.Time:
-			args[i].Value = types.Datetime64Value(t.Unix())
+			out[i] = types.Datetime64Value(t.Unix())
 		case *time.Time:
-			args[i].Value = types.NullableDatetime64ValueFromTime(t)
+			out[i] = types.NullableDatetime64ValueFromTime(t)
+		default:
+			out[i] = args[i]
 		}
 	}
-	return sql, args, nil
+	return sql, out, nil
 }
