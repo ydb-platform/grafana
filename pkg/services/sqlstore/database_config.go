@@ -19,7 +19,6 @@ import (
 
 type DatabaseConfig struct {
 	Type                        string
-	PluginPath                  string
 	Host                        string
 	Name                        string
 	User                        string
