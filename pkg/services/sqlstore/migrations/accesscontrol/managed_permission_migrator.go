@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/services/accesscontrol"

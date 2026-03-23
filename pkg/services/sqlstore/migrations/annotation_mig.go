@@ -1,7 +1,7 @@
 package migrations
 
 import (
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 
 	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
@@ -72,7 +72,7 @@ func addAnnotationMig(mg *Migrator) {
 	annotationTagTable := Table{
 		Name: "annotation_tag",
 		Columns: []*Column{
-			{Name: "annotation_id", Type: DB_BigInt, Nullable: false},
+			{Name: "annotation_id", Type: DB_BigInt, Nullable: false, IsPrimaryKey: true},
 			{Name: "tag_id", Type: DB_BigInt, Nullable: false},
 		},
 		Indices: []*Index{
@@ -116,7 +116,7 @@ func addAnnotationMig(mg *Migrator) {
 	//
 	// clear alert text
 	//
-	updateTextFieldSQL := "UPDATE annotation SET TEXT = '' WHERE alert_id > 0"
+	updateTextFieldSQL := "UPDATE annotation SET text = '' WHERE alert_id > 0"
 	mg.AddMigration("Update alert annotations and set TEXT to empty", NewRawSQLMigration(updateTextFieldSQL))
 
 	//

@@ -6,14 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 
 	"github.com/grafana/grafana/pkg/services/accesscontrol"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
 var (
-	batchSize = 500
+	batchSize = 100
 )
 
 type permissionMigrator struct {

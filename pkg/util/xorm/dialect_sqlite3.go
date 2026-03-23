@@ -11,7 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"xorm.io/core"
+	"github.com/grafana/grafana/pkg/util/sqlite"
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
 var (
@@ -218,13 +219,13 @@ func (db *sqlite3) IndexOnTable() bool {
 	return false
 }
 
-func (db *sqlite3) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
-	args := []interface{}{idxName}
+func (db *sqlite3) IndexCheckSql(tableName, idxName string) (string, []any) {
+	args := []any{idxName}
 	return "SELECT name FROM sqlite_master WHERE type='index' and name = ?", args
 }
 
-func (db *sqlite3) TableCheckSql(tableName string) (string, []interface{}) {
-	args := []interface{}{tableName}
+func (db *sqlite3) TableCheckSql(tableName string) (string, []any) {
+	args := []any{tableName}
 	return "SELECT name FROM sqlite_master WHERE type='table' and name = ?", args
 }
 
@@ -249,7 +250,7 @@ func (db *sqlite3) ForUpdateSql(query string) string {
 }
 
 func (db *sqlite3) IsColumnExist(tableName, colName string) (bool, error) {
-	args := []interface{}{tableName}
+	args := []any{tableName}
 	query := "SELECT name FROM sqlite_master WHERE type='table' and name = ? and ((sql like '%`" + colName + "`%') or (sql like '%[" + colName + "]%'))"
 	db.LogSQL(query, args)
 	rows, err := db.DB().Query(query, args...)
@@ -327,7 +328,7 @@ func parseString(colStr string) (*core.Column, error) {
 }
 
 func (db *sqlite3) GetColumns(tableName string) ([]string, map[string]*core.Column, error) {
-	args := []interface{}{tableName}
+	args := []any{tableName}
 	s := "SELECT sql FROM sqlite_master WHERE type='table' and name = ?"
 	db.LogSQL(s, args)
 	rows, err := db.DB().Query(s, args...)
@@ -384,7 +385,7 @@ func (db *sqlite3) GetColumns(tableName string) ([]string, map[string]*core.Colu
 }
 
 func (db *sqlite3) GetTables() ([]*core.Table, error) {
-	args := []interface{}{}
+	args := []any{}
 	s := "SELECT name FROM sqlite_master WHERE type='table'"
 	db.LogSQL(s, args)
 
@@ -410,7 +411,7 @@ func (db *sqlite3) GetTables() ([]*core.Table, error) {
 }
 
 func (db *sqlite3) GetIndexes(tableName string) (map[string]*core.Index, error) {
-	args := []interface{}{tableName}
+	args := []any{tableName}
 	s := "SELECT sql FROM sqlite_master WHERE type='index' and tbl_name = ?"
 	db.LogSQL(s, args)
 
@@ -472,6 +473,10 @@ func (db *sqlite3) GetIndexes(tableName string) (map[string]*core.Index, error) 
 
 func (db *sqlite3) Filters() []core.Filter {
 	return []core.Filter{&core.IdFilter{}}
+}
+
+func (db *sqlite3) RetryOnError(err error) bool {
+	return sqlite.IsBusyOrLocked(err)
 }
 
 type sqlite3Driver struct {

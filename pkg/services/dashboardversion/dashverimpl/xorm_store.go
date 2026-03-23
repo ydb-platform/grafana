@@ -48,7 +48,6 @@ func (ss *sqlStore) GetBatch(ctx context.Context, cmd *dashver.DeleteExpiredVers
 			WHERE dashboard_version.dashboard_id=vtd.dashboard_id
 			AND version < vtd.min + vtd.count - ?
 			LIMIT ?`
-
 		err := sess.SQL(versionIdsToDeleteQuery, versionsToKeep, perBatch).Find(&versionIds)
 		return err
 	})

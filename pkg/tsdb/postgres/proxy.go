@@ -12,7 +12,7 @@ import (
 	"github.com/grafana/grafana/pkg/util"
 	"github.com/lib/pq"
 	"golang.org/x/net/proxy"
-	"xorm.io/core"
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
 // createPostgresProxyDriver creates and registers a new sql driver that uses a postgres connector and updates the dialer to

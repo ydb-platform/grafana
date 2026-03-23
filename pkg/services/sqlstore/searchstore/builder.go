@@ -137,10 +137,6 @@ func (b *Builder) applyFilters() (ordering string) {
 		b.params = append(b.params, whereParams...)
 	}
 
-	if len(orders) < 1 {
-		orders = append(orders, TitleSorter{}.OrderBy())
-	}
-
 	if len(groups) > 0 {
 		cols := make([]string, 0, len(orders)+len(groups))
 		for _, o := range orders {
@@ -170,7 +166,12 @@ func (b *Builder) applyFilters() (ordering string) {
 	orderBy := fmt.Sprintf(" ORDER BY %s", strings.Join(orderByCols, ", "))
 	b.sql.WriteString(orderBy)
 
+	// YDB: outer query has both dashboard.title and alias "title"; ORDER BY title is ambiguous ("column name: title conflicted")
+	orderByOuter := orderBy
+	if b.Dialect.DriverName() == migrator.YDB {
+		orderByOuter = strings.ReplaceAll(orderByOuter, " title ", " dashboard.title ")
+	}
 	order := strings.Join(orderJoins, "")
-	order += orderBy
+	order += orderByOuter
 	return order
 }
