@@ -34,7 +34,7 @@ func folderv1() migrator.Table {
 		Name: "folder",
 		Columns: []*migrator.Column{
 			{Name: "id", Type: migrator.DB_BigInt, IsPrimaryKey: true, IsAutoIncrement: true},
-			{Name: "uid", Type: migrator.DB_NVarchar, Length: 40},
+			{Name: "uid", Type: migrator.DB_NVarchar, Length: 40, Nullable: true},
 			{Name: "org_id", Type: migrator.DB_BigInt, Nullable: false},
 			{Name: "title", Type: migrator.DB_NVarchar, Length: 255, Nullable: false},
 			{Name: "description", Type: migrator.DB_NVarchar, Length: 255, Nullable: true},

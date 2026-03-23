@@ -9,7 +9,7 @@ import (
 	"github.com/grafana/grafana/pkg/tsdb/sqleng"
 	"github.com/grafana/grafana/pkg/tsdb/sqleng/proxyutil"
 	"github.com/stretchr/testify/require"
-	"xorm.io/core"
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
 func TestMSSQLProxyDriver(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"xorm.io/core"
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
 var (
@@ -283,29 +283,30 @@ func (db *mysql) IndexOnTable() bool {
 	return true
 }
 
-func (db *mysql) IndexCheckSql(tableName, idxName string) (string, []interface{}) {
-	args := []interface{}{db.DbName, tableName, idxName}
+func (db *mysql) IndexCheckSql(tableName, idxName string) (string, []any) {
+	args := []any{db.DbName, tableName, idxName}
 	sql := "SELECT `INDEX_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS`"
 	sql += " WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? AND `INDEX_NAME`=?"
 	return sql, args
 }
 
-/*func (db *mysql) ColumnCheckSql(tableName, colName string) (string, []interface{}) {
-	args := []interface{}{db.DbName, tableName, colName}
+/*func (db *mysql) ColumnCheckSql(tableName, colName string) (string, []any) {
+	args := []any{db.DbName, tableName, colName}
 	sql := "SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? AND `COLUMN_NAME` = ?"
 	return sql, args
 }*/
 
-func (db *mysql) TableCheckSql(tableName string) (string, []interface{}) {
-	args := []interface{}{db.DbName, tableName}
+func (db *mysql) TableCheckSql(tableName string) (string, []any) {
+	args := []any{db.DbName, tableName}
 	sql := "SELECT `TABLE_NAME` from `INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA`=? and `TABLE_NAME`=?"
 	return sql, args
 }
 
 func (db *mysql) GetColumns(tableName string) ([]string, map[string]*core.Column, error) {
-	args := []interface{}{db.DbName, tableName}
+	args := []any{db.DbName, tableName}
 	s := "SELECT `COLUMN_NAME`, `IS_NULLABLE`, `COLUMN_DEFAULT`, `COLUMN_TYPE`," +
-		" `COLUMN_KEY`, `EXTRA`,`COLUMN_COMMENT` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ?"
+		" `COLUMN_KEY`, `EXTRA`,`COLUMN_COMMENT` FROM `INFORMATION_SCHEMA`.`COLUMNS`" +
+		" WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? ORDER BY ORDINAL_POSITION ASC"
 	db.LogSQL(s, args)
 
 	rows, err := db.DB().Query(s, args...)
@@ -411,7 +412,7 @@ func (db *mysql) GetColumns(tableName string) ([]string, map[string]*core.Column
 }
 
 func (db *mysql) GetTables() ([]*core.Table, error) {
-	args := []interface{}{db.DbName}
+	args := []any{db.DbName}
 	s := "SELECT `TABLE_NAME`, `ENGINE`, `TABLE_ROWS`, `AUTO_INCREMENT`, `TABLE_COMMENT` from " +
 		"`INFORMATION_SCHEMA`.`TABLES` WHERE `TABLE_SCHEMA`=? AND (`ENGINE`='MyISAM' OR `ENGINE` = 'InnoDB' OR `ENGINE` = 'TokuDB')"
 	db.LogSQL(s, args)
@@ -441,8 +442,8 @@ func (db *mysql) GetTables() ([]*core.Table, error) {
 }
 
 func (db *mysql) GetIndexes(tableName string) (map[string]*core.Index, error) {
-	args := []interface{}{db.DbName, tableName}
-	s := "SELECT `INDEX_NAME`, `NON_UNIQUE`, `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ?"
+	args := []any{db.DbName, tableName}
+	s := "SELECT `INDEX_NAME`, `NON_UNIQUE`, `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`STATISTICS` WHERE `TABLE_SCHEMA` = ? AND `TABLE_NAME` = ? ORDER BY `INDEX_NAME`, `SEQ_IN_INDEX`"
 	db.LogSQL(s, args)
 
 	rows, err := db.DB().Query(s, args...)

@@ -9,7 +9,7 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"go.opentelemetry.io/otel/attribute"
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/tracing"

@@ -11,7 +11,7 @@ import (
 	"github.com/grafana/grafana/pkg/tsdb/sqleng"
 	"github.com/grafana/grafana/pkg/util"
 	"golang.org/x/net/proxy"
-	"xorm.io/core"
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 )
 
 // createMSSQLProxyDriver creates and registers a new sql driver that uses a mssql connector and updates the dialer to

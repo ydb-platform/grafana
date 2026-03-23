@@ -13,7 +13,7 @@ import (
 
 	alertingNotify "github.com/grafana/alerting/notify"
 	pb "github.com/prometheus/alertmanager/silence/silencepb"
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 
 	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"

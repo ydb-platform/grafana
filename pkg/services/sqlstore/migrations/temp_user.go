@@ -3,7 +3,7 @@ package migrations
 import (
 	"time"
 
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 
 	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
@@ -105,9 +105,9 @@ func (m *SetCreatedForOutstandingInvites) SQL(dialect Dialect) string {
 }
 
 func (m *SetCreatedForOutstandingInvites) Exec(sess *xorm.Session, mg *Migrator) error {
-	created := time.Now().Unix()
+	created := int32(time.Now().Unix())
 	if _, err := sess.Exec("UPDATE "+mg.Dialect.Quote("temp_user")+
-		" SET created = ?, updated = ? WHERE created = '0' AND status in ('SignUpStarted', 'InvitePending')", created, created); err != nil {
+		" SET created = ?, updated = ? WHERE created = 0 AND status in ('SignUpStarted', 'InvitePending')", created, created); err != nil {
 		return err
 	}
 	return nil

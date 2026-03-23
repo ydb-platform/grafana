@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 )
 
 var (
@@ -75,6 +75,12 @@ type Dialect interface {
 	GetDBName(string) (string, error)
 }
 
+type DialectRecursiveCTE interface {
+	Dialect
+
+	RecursiveQueriesAreSupported() (bool, error)
+}
+
 type LockCfg struct {
 	Session *xorm.Session
 	Key     string
@@ -90,6 +96,7 @@ var supportedDialects = map[string]dialectFunc{
 	MySQL + "WithHooks":    NewMysqlDialect,
 	SQLite + "WithHooks":   NewSQLite3Dialect,
 	Postgres + "WithHooks": NewPostgresDialect,
+	YDB:                    NewYDBDialect,
 }
 
 func NewDialect(driverName string) Dialect {

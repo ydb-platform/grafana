@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/mattn/go-sqlite3"
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 )
 
 type SQLite3 struct {

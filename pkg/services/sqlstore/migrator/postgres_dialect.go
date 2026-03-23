@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
-	"xorm.io/xorm"
+	"github.com/grafana/grafana/pkg/util/xorm"
 )
 
 type PostgresDialect struct {

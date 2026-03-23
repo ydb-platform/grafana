@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"xorm.io/core"
+	"github.com/grafana/grafana/pkg/util/xorm/core"
 
 	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
@@ -59,6 +59,14 @@ func IsTestDbPostgres() bool {
 func IsTestDBMSSQL() bool {
 	if db, present := os.LookupEnv("GRAFANA_TEST_DB"); present {
 		return db == migrator.MSSQL
+	}
+
+	return false
+}
+
+func IsTestDBYDB() bool {
+	if db, present := os.LookupEnv("GRAFANA_TEST_DB"); present {
+		return db == migrator.YDB
 	}
 
 	return false
