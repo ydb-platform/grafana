@@ -13,8 +13,8 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
 
-	"github.com/grafana/grafana/pkg/util/xorm"
-	"github.com/grafana/grafana/pkg/util/xorm/core"
+	"xorm.io/core"
+	"xorm.io/xorm"
 )
 
 var _ DialectRecursiveCTE = (*YDBDialect)(nil)
@@ -79,7 +79,7 @@ func (d *YDBDialect) BatchSize() int {
 }
 
 func (d *YDBDialect) SQLType(c *Column) string {
-	xormDialect := core.QueryDialect(core.YDB)
+	xormDialect := core.QueryDialect(YDB)
 	column := &core.Column{
 		SQLType: core.SQLType{
 			Name:           c.Type,

@@ -19,8 +19,10 @@ import (
 	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
 	yc "github.com/ydb-platform/ydb-go-yc-metadata"
 
-	"github.com/grafana/grafana/pkg/util/xorm/core"
+	"xorm.io/core"
 )
+
+const YDB core.DbType = "ydb"
 
 func init() {
 	ydb.RegisterDsnParser(func(dsn string) (opts []ydb.Option, _ error) {
