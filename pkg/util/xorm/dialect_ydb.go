@@ -1782,11 +1782,6 @@ func (db *ydbDialect) DropTableSQL(tableName string) (string, bool) {
 	return buf.String(), false
 }
 
-type ydbSeqFilter struct {
-	Prefix string
-	Start  int
-}
-
 // TODO:
 func (db *ydbDialect) Filters() []core.Filter {
 	return []core.Filter{&core.IdFilter{}, &core.SeqFilter{Prefix: "$", Start: 1}}
