@@ -68,9 +68,8 @@ func (s *ServiceAccountsStoreImpl) getUsageMetricsYDB(ctx context.Context, diale
 	}
 
 	return &serviceaccounts.Stats{
-		ServiceAccounts:           nServiceaccounts,
-		Tokens:                    nTokens,
-		ServiceAccountsWithNoRole: nWithNoRole,
-		ForcedExpiryEnabled:       s.cfg.SATokenExpirationDayLimit != 0,
+		ServiceAccounts:     nServiceaccounts,
+		Tokens:              nTokens,
+		ForcedExpiryEnabled: s.cfg.SATokenExpirationDayLimit != 0,
 	}, nil
 }

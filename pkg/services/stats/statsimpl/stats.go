@@ -32,7 +32,7 @@ type sqlStatsService struct {
 
 func (ss *sqlStatsService) GetAlertNotifiersUsageStats(ctx context.Context, query *stats.GetAlertNotifierUsageStatsQuery) (result []*stats.NotifierUsageStats, err error) {
 	err = ss.db.WithDbSession(ctx, func(dbSession *db.Session) error {
-		rawSQL := `SELECT COUNT(*) AS count, type FROM ` + ss.db.GetDialect().Quote("alert_notification") + ` GROUP BY type`
+		var rawSQL = `SELECT COUNT(*) AS count, type FROM ` + ss.db.GetDialect().Quote("alert_notification") + ` GROUP BY type`
 		result = make([]*stats.NotifierUsageStats, 0)
 		err := dbSession.SQL(rawSQL).Find(&result)
 		return err
@@ -42,7 +42,7 @@ func (ss *sqlStatsService) GetAlertNotifiersUsageStats(ctx context.Context, quer
 
 func (ss *sqlStatsService) GetDataSourceStats(ctx context.Context, query *stats.GetDataSourceStatsQuery) (result []*stats.DataSourceStats, err error) {
 	err = ss.db.WithDbSession(ctx, func(dbSession *db.Session) error {
-		rawSQL := `SELECT COUNT(*) AS count, type FROM ` + ss.db.GetDialect().Quote("data_source") + ` GROUP BY type`
+		var rawSQL = `SELECT COUNT(*) AS count, type FROM ` + ss.db.GetDialect().Quote("data_source") + ` GROUP BY type`
 		result = make([]*stats.DataSourceStats, 0)
 		err := dbSession.SQL(rawSQL).Find(&result)
 		return err
@@ -52,7 +52,7 @@ func (ss *sqlStatsService) GetDataSourceStats(ctx context.Context, query *stats.
 
 func (ss *sqlStatsService) GetDataSourceAccessStats(ctx context.Context, query *stats.GetDataSourceAccessStatsQuery) (result []*stats.DataSourceAccessStats, err error) {
 	err = ss.db.WithDbSession(ctx, func(dbSession *db.Session) error {
-		rawSQL := `SELECT COUNT(*) AS count, type, access FROM ` + ss.db.GetDialect().Quote("data_source") + ` GROUP BY type, access`
+		var rawSQL = `SELECT COUNT(*) AS count, type, access FROM ` + ss.db.GetDialect().Quote("data_source") + ` GROUP BY type, access`
 		result = make([]*stats.DataSourceAccessStats, 0)
 		err := dbSession.SQL(rawSQL).Find(&result)
 		return err
@@ -276,12 +276,6 @@ func (ss *sqlStatsService) getSystemStatsYDB(ctx context.Context, dialect migrat
 			return err
 		case !dbCreated.IsZero():
 			result.DatabaseCreatedTime = &dbCreated
-		}
-		if ss.IsUnifiedAlertingEnabled() {
-			if c, err = runCount(sess, `SELECT COUNT(DISTINCT `+dialect.Quote("rule_group")+`) AS c FROM `+dialect.Quote("alert_rule"), nil); err != nil {
-				return err
-			}
-			result.RuleGroups = c
 		}
 		// Role counts from cache (same as roleCounterSQL)
 		_ = ss.updateUserRoleCountsIfNecessary(ctx, false)

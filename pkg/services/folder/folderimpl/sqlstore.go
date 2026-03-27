@@ -2,7 +2,6 @@ package folderimpl
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/services/featuremgmt"
 	"github.com/grafana/grafana/pkg/services/folder"
-	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/util"
 )
@@ -332,40 +330,4 @@ func (ss *sqlStore) GetHeight(ctx context.Context, foldrUID string, orgID int64,
 		ss.log.Warn("folder height exceeds the maximum allowed depth, You might have a circular reference", "uid", foldrUID, "orgId", orgID, "maxDepth", folder.MaxNestedFolderDepth)
 	}
 	return height, nil
-}
-
-func getFullpathSQL(dialect migrator.Dialect) string {
-	escaped := `\/`
-	if dialect.DriverName() == migrator.MySQL {
-		escaped = `\\/`
-	}
-	replaceExpr := "REPLACE"
-	if dialect.DriverName() == migrator.YDB {
-		replaceExpr = "Unicode::ReplaceAll"
-	}
-	concatCols := make([]string, 0, folder.MaxNestedFolderDepth)
-	concatCols = append(concatCols, fmt.Sprintf("COALESCE(%s(f0.title, '/', '%s'), '')", replaceExpr, escaped))
-	for i := 1; i <= folder.MaxNestedFolderDepth; i++ {
-		concatCols = append([]string{fmt.Sprintf("COALESCE(%s(f%d.title, '/', '%s'), '')", replaceExpr, i, escaped), "'/'"}, concatCols...)
-	}
-	return dialect.Concat(concatCols...)
-}
-
-func getFullapathUIDsSQL(dialect migrator.Dialect) string {
-	concatCols := make([]string, 0, folder.MaxNestedFolderDepth)
-	concatCols = append(concatCols, "COALESCE(f0.uid, '')")
-	for i := 1; i <= folder.MaxNestedFolderDepth; i++ {
-		concatCols = append([]string{fmt.Sprintf("COALESCE(f%d.uid, '')", i), "'/'"}, concatCols...)
-	}
-	return dialect.Concat(concatCols...)
-}
-
-// getFullpathJoinsSQL returns a SQL fragment that joins the same table multiple times to get the full path of a folder.
-func getFullpathJoinsSQL() string {
-	joins := make([]string, 0, folder.MaxNestedFolderDepth)
-	for i := 1; i <= folder.MaxNestedFolderDepth; i++ {
-		// covered by UQE_folder_org_id_uid
-		joins = append(joins, fmt.Sprintf(` LEFT JOIN folder f%d ON f%d.org_id = f%d.org_id AND f%d.uid = f%d.parent_uid`, i, i, i-1, i, i-1))
-	}
-	return strings.Join(joins, "\n")
 }
