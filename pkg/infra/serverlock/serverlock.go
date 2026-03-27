@@ -9,8 +9,6 @@ import (
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/infra/tracing"
-	"github.com/grafana/grafana/pkg/services/sqlstore"
-	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
 func ProvideService(sqlStore db.DB, tracer tracing.Tracer) *ServerLockService {
@@ -266,65 +264,4 @@ func (sl ServerLockService) executeFunc(ctx context.Context, actionName string, 
 	fn(ctx)
 
 	ctxLogger.Debug("Execution finished", "actionName", actionName, "duration", time.Since(start))
-}
-
-func (sl *ServerLockService) createLock(ctx context.Context,
-	lockRow *serverLock, dbSession *sqlstore.DBSession,
-) (*serverLock, error) {
-	affected := int64(1)
-	rawSQL := ` INTO server_lock (operation_uid, last_execution, version) VALUES (?, ?, ?)`
-	if sl.SQLStore.GetDBType() == migrator.YDB {
-		rawSQL = "UPSERT" + rawSQL
-	} else {
-		rawSQL = "INSERT" + rawSQL
-	}
-	if sl.SQLStore.GetDBType() == migrator.Postgres {
-		rawSQL += ` ON CONFLICT DO NOTHING RETURNING id`
-		var id int64
-		_, err := dbSession.SQL(rawSQL, lockRow.OperationUID, lockRow.LastExecution, 0).Get(&id)
-		if err != nil {
-			return nil, err
-		}
-		if id == 0 {
-			return nil, &ServerLockExistsError{actionName: lockRow.OperationUID}
-		}
-		lockRow.Id = id
-	} else if sl.SQLStore.GetDBType() == migrator.YDB {
-		rawSQL += ` RETURNING id`
-		var id int64
-		_, err := dbSession.SQL(rawSQL, lockRow.OperationUID, lockRow.LastExecution, 0).Get(&id)
-		if err != nil {
-			return nil, err
-		}
-		if id == 0 {
-			return nil, &ServerLockExistsError{actionName: lockRow.OperationUID}
-		}
-		lockRow.Id = id
-	} else {
-		res, err := dbSession.Exec(
-			rawSQL,
-			lockRow.OperationUID, lockRow.LastExecution, 0)
-		if err != nil {
-			return nil, err
-		}
-		lastID, err := res.LastInsertId()
-		if err != nil {
-			sl.log.FromContext(ctx).Error("Error getting last insert id", "actionName", lockRow.OperationUID, "error", err)
-		}
-		lockRow.Id = lastID
-
-		affected, err = res.RowsAffected()
-		if err != nil {
-			sl.log.FromContext(ctx).Error("Error getting rows affected", "actionName", lockRow.OperationUID, "error", err)
-		}
-	}
-
-	if affected != 1 || lockRow.Id == 0 {
-		sl.log.FromContext(ctx).Error("Expected rows affected to be 1 if there was no error",
-			"actionName", lockRow.OperationUID,
-			"rowsAffected", affected,
-			"lockRow ID", lockRow.Id)
-	}
-
-	return lockRow, nil
 }
