@@ -53,6 +53,9 @@ func (ss *SQLStore) createUser(ctx context.Context, sess *DBSession, args user.C
 	where := "email=? OR login=?"
 	if ss.Cfg.CaseInsensitiveLogin {
 		where = "LOWER(email)=LOWER(?) OR LOWER(login)=LOWER(?)"
+		if ss.Dialect.DriverName() == "ydb" {
+			where = "Unicode::ToLower(email)=Unicode::ToLower(?) OR Unicode::ToLower(login)=Unicode::ToLower(?)"
+		}
 		args.Login = strings.ToLower(args.Login)
 		args.Email = strings.ToLower(args.Email)
 	}

@@ -465,6 +465,13 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
+require (
+	github.com/ydb-platform/ydb-go-sdk/v3 v3.126.4
+	github.com/ydb-platform/ydb-go-yc-metadata v0.6.1
+)
+
+require github.com/ydb-platform/ydb-go-genproto v0.0.0-20251125145508-6d7ef87db5cb // indirect
+
 // Use fork of crewjam/saml with fixes for some issues until changes get merged into upstream
 replace github.com/crewjam/saml => github.com/grafana/saml v0.4.13-0.20230331080031-67cbfa09c7b6
 
