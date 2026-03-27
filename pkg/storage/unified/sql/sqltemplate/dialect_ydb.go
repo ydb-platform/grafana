@@ -17,10 +17,6 @@ func (p ydb) ArgPlaceholder(argNum int) string {
 	return fmt.Sprintf("$%d", argNum)
 }
 
-func (p ydb) SelectFor(s ...string) (string, error) {
-	return rowLockingClauseAll.SelectFor(s...)
-}
-
 func (p ydb) Ident(s string) (string, error) {
 	return "`" + s + "`", nil
 }

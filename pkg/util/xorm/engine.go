@@ -717,7 +717,7 @@ func (engine *Engine) nowTime(col *core.Column) (interface{}, time.Time) {
 
 func (engine *Engine) formatColTime(col *core.Column, t time.Time) (v interface{}) {
 	if t.IsZero() {
-		if engine.dialect.DBType() == core.YDB {
+		if engine.dialect.DBType() == YDB {
 			if col.Nullable {
 				var tf *time.Time
 				return tf
@@ -739,7 +739,7 @@ func (engine *Engine) formatColTime(col *core.Column, t time.Time) (v interface{
 
 // formatTime format time as column type
 func (engine *Engine) formatTime(sqlTypeName string, t time.Time) (v interface{}) {
-	if engine.dialect.DBType() == core.YDB {
+	if engine.dialect.DBType() == YDB {
 		return t
 	}
 
