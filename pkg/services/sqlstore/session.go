@@ -144,8 +144,9 @@ func (sess *DBSession) InsertId(bean interface{}, dialect migrator.Dialect) erro
 }
 
 func (sess *DBSession) WithReturningID(driverName string, query string, args []interface{}) (int64, error) {
+	supported := driverName != migrator.Postgres && driverName != migrator.YDB
 	var id int64
-	if driverName == migrator.Postgres || driverName == migrator.YDB {
+	if !supported {
 		query = fmt.Sprintf("%s RETURNING id", query)
 		if _, err := sess.SQL(query, args...).Get(&id); err != nil {
 			return id, err
