@@ -23,8 +23,6 @@ import (
 )
 
 const (
-	// selectLibraryElementDTOWithMeta is the default SELECT with a scalar subquery for connected_dashboards.
-	// YDB does not support scalar subqueries in SELECT; use getSelectLibraryElementDTOWithMeta(dialect) for dialect-aware SQL.
 	selectLibraryElementDTOWithMeta = `
 SELECT DISTINCT
 	le.name, le.id, le.org_id, le.folder_id, le.uid, le.kind, le.type, le.description, le.model, le.created, le.created_by, le.updated, le.updated_by, le.version
