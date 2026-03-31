@@ -125,7 +125,7 @@ func (d *YDBDialect) DropIndexSQL(tableName string, index *Index) string {
 }
 
 func (d *YDBDialect) UpdateTableSQL(tableName string, columns []*Column) string {
-	return ""
+	return "SELECT 1"
 	statements := []string{}
 
 	for _, col := range columns {
