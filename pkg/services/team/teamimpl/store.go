@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/grafana/grafana/pkg/infra/db"
@@ -55,14 +54,10 @@ func getFilteredUsers(signedInUser *user.SignedInUser, hiddenUsers map[string]st
 
 func getTeamMemberCount(db db.DB, filteredUsers []string) string {
 	if len(filteredUsers) > 0 {
-		return `(SELECT COUNT(*) FROM team_member
-			INNER JOIN ` + db.GetDialect().Quote("user") + ` ON team_member.user_id = ` + db.GetDialect().Quote("user") + `.id
-			WHERE team_member.team_id = team.id AND ` + db.GetDialect().Quote("user") + `.login NOT IN (?` +
-			strings.Repeat(",?", len(filteredUsers)-1) + ")" +
-			`) AS member_count `
+		return `100500 AS member_count `
 	}
 
-	return "(SELECT COUNT(*) FROM team_member WHERE team_member.team_id = team.id) AS member_count "
+	return "100500 AS member_count "
 }
 
 func getTeamSelectSQLBase(db db.DB, filteredUsers []string) string {

@@ -26,6 +26,46 @@ func addFolderMigrations(mg *migrator.Migrator) {
 		Type: migrator.UniqueIndex,
 		Cols: []string{"title", "parent_uid"},
 	}))
+	mg.AddMigration("Remove unique index for folder.title and folder.parent_uid", migrator.NewDropIndexMigration(folderv1(), &migrator.Index{
+		Type: migrator.UniqueIndex,
+		Cols: []string{"title", "parent_uid"},
+	}))
+
+	mg.AddMigration("Add unique index for title, parent_uid, and org_id", migrator.NewAddIndexMigration(folderv1(), &migrator.Index{
+		Type: migrator.UniqueIndex,
+		Cols: []string{"title", "parent_uid", "org_id"},
+	}))
+
+	mg.AddMigration("Sync dashboard and folder table", migrator.NewRawSQLMigration("").
+		Mysql(`
+			INSERT INTO folder (uid, org_id, title, created, updated)
+			SELECT * FROM (SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = 1) AS derived
+			ON DUPLICATE KEY UPDATE title=derived.title, updated=derived.updated
+		`).Postgres(`
+			INSERT INTO folder (uid, org_id, title, created, updated)
+			SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = true
+			ON CONFLICT(uid, org_id) DO UPDATE SET title=excluded.title, updated=excluded.updated
+		`).SQLite(`
+			INSERT INTO folder (uid, org_id, title, created, updated)
+			SELECT uid, org_id, title, created, updated FROM dashboard WHERE is_folder = 1
+			ON CONFLICT DO UPDATE SET title=excluded.title, updated=excluded.updated
+		`).YDB(`
+			UPSERT INTO folder (uid, org_id, title, created, updated)
+			SELECT g.folder_uid, g.org_id, g.title, g.created, g.updated FROM (
+				SELECT folder_uid, org_id, MAX(title) AS title, MAX(created) AS created, MAX(updated) AS updated
+				FROM dashboard WHERE is_folder
+				GROUP BY COALESCE(uid, "") AS folder_uid, org_id
+			) AS g
+		`))
+
+	mg.AddMigration("Remove ghost folders from the folder table", migrator.NewRawSQLMigration(`
+			DELETE FROM folder WHERE NOT EXISTS
+				(SELECT 1 FROM dashboard WHERE dashboard.uid = folder.uid AND dashboard.org_id = folder.org_id AND dashboard.is_folder = true)
+	`).YDB(`
+			DELETE FROM folder ON
+    			SELECT folder.id AS id FROM folder JOIN dashboard ON dashboard.uid = folder.uid AND dashboard.org_id = folder.org_id
+    			WHERE dashboard.is_folder
+	`)) // TODO: YDB case should be non empty
 }
 
 func folderv1() migrator.Table {
@@ -34,7 +74,7 @@ func folderv1() migrator.Table {
 		Name: "folder",
 		Columns: []*migrator.Column{
 			{Name: "id", Type: migrator.DB_BigInt, IsPrimaryKey: true, IsAutoIncrement: true},
-			{Name: "uid", Type: migrator.DB_NVarchar, Length: 40},
+			{Name: "uid", Type: migrator.DB_NVarchar, Length: 40, Nullable: true},
 			{Name: "org_id", Type: migrator.DB_BigInt, Nullable: false},
 			{Name: "title", Type: migrator.DB_NVarchar, Length: 255, Nullable: false},
 			{Name: "description", Type: migrator.DB_NVarchar, Length: 255, Nullable: true},

@@ -43,6 +43,59 @@ WHERE connection_id IN (
 	) as dummy
 )`
 
+// getSelectLibraryElementDTOWithMeta returns the SELECT clause for library elements with meta.
+// For YDB the scalar subquery is omitted (use 0 and fill via fillConnectedDashboardsYDB).
+func getSelectLibraryElementDTOWithMeta(dialect migrator.Dialect) string {
+	if dialect.DriverName() == migrator.YDB {
+		return `
+SELECT DISTINCT
+	le.name AS name, le.id, le.org_id, le.folder_id, le.uid, le.kind, le.type, le.description, le.model, le.created, le.created_by, le.updated, le.updated_by, le.version
+	, u1.login AS created_by_name
+	, u1.email AS created_by_email
+	, u2.login AS updated_by_name
+	, u2.email AS updated_by_email
+	, 0 AS connected_dashboards`
+	}
+	return selectLibraryElementDTOWithMeta
+}
+
+// fillConnectedDashboardsYDB fills ConnectedDashboards for elements when using YDB (no scalar subquery in SELECT).
+func fillConnectedDashboardsYDB(sess *db.Session, dialect migrator.Dialect, elements []model.LibraryElementWithMeta) error {
+	if dialect.DriverName() != migrator.YDB || len(elements) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(elements))
+	for i := range elements {
+		ids = append(ids, elements[i].ID)
+	}
+	// Batch query: element_id -> count for kind=1 (dashboards)
+	type row struct {
+		ElementID int64 `xorm:"element_id"`
+		C         int64 `xorm:"c"`
+	}
+	var rows []row
+	placeholders := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+1)
+	for i := range placeholders {
+		placeholders[i] = "?"
+		args = append(args, ids[i])
+	}
+	args = append([]any{model.PanelElement}, args...)
+	sql := "SELECT element_id, COUNT(connection_id) AS c FROM " + model.LibraryElementConnectionTableName +
+		" WHERE kind = ? AND element_id IN (" + strings.Join(placeholders, ",") + ") GROUP BY element_id"
+	if err := sess.SQL(sql, args...).Find(&rows); err != nil {
+		return err
+	}
+	countByID := make(map[int64]int64, len(rows))
+	for _, r := range rows {
+		countByID[r.ElementID] = r.C
+	}
+	for i := range elements {
+		elements[i].ConnectedDashboards = countByID[elements[i].ID]
+	}
+	return nil
+}
+
 func getFromLibraryElementDTOWithMeta(dialect migrator.Dialect) string {
 	user := dialect.Quote("user")
 	userJoin := `
@@ -84,7 +137,7 @@ func syncFieldsWithModel(libraryElement *model.LibraryElement) error {
 
 func getLibraryElement(dialect migrator.Dialect, session *db.Session, uid string, orgID int64) (model.LibraryElementWithMeta, error) {
 	elements := make([]model.LibraryElementWithMeta, 0)
-	sql := selectLibraryElementDTOWithMeta +
+	sql := getSelectLibraryElementDTOWithMeta(dialect) +
 		", coalesce(dashboard.title, 'General') AS folder_name" +
 		", coalesce(dashboard.uid, '') AS folder_uid" +
 		getFromLibraryElementDTOWithMeta(dialect) +
@@ -93,6 +146,9 @@ func getLibraryElement(dialect migrator.Dialect, session *db.Session, uid string
 	sess := session.SQL(sql, uid, orgID)
 	err := sess.Find(&elements)
 	if err != nil {
+		return model.LibraryElementWithMeta{}, err
+	}
+	if err := fillConnectedDashboardsYDB(session, dialect, elements); err != nil {
 		return model.LibraryElementWithMeta{}, err
 	}
 	if len(elements) == 0 {
@@ -237,11 +293,12 @@ func getLibraryElements(c context.Context, store db.DB, cfg *setting.Cfg, signed
 	}
 
 	err = store.WithDbSession(c, func(session *db.Session) error {
-		builder := db.NewSqlBuilder(cfg, features, store.GetDialect(), recursiveQueriesAreSupported)
-		builder.Write(selectLibraryElementDTOWithMeta)
+		dialect := store.GetDialect()
+		builder := db.NewSqlBuilder(cfg, features, dialect, recursiveQueriesAreSupported)
+		builder.Write(getSelectLibraryElementDTOWithMeta(dialect))
 		builder.Write(", ? as folder_name ", cmd.FolderName)
 		builder.Write(", '' as folder_uid ")
-		builder.Write(getFromLibraryElementDTOWithMeta(store.GetDialect()))
+		builder.Write(getFromLibraryElementDTOWithMeta(dialect))
 		writeParamSelectorSQL(&builder, append(params, Pair{"folder_id", cmd.FolderID})...)
 		builder.Write(" UNION ")
 		builder.Write(selectLibraryElementDTOWithMeta)
@@ -253,6 +310,9 @@ func getLibraryElements(c context.Context, store db.DB, cfg *setting.Cfg, signed
 		builder.WriteDashboardPermissionFilter(signedInUser, dashboards.PERMISSION_VIEW, "")
 		builder.Write(` OR dashboard.id=0`)
 		if err := session.SQL(builder.GetSQLString(), builder.GetParams()...).Find(&libraryElements); err != nil {
+			return err
+		}
+		if err := fillConnectedDashboardsYDB(session, dialect, libraryElements); err != nil {
 			return err
 		}
 		if len(libraryElements) == 0 {
@@ -348,12 +408,13 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		return model.LibraryElementSearchResult{}, folderFilter.parseError
 	}
 	err = l.SQLStore.WithDbSession(c, func(session *db.Session) error {
-		builder := db.NewSqlBuilder(l.Cfg, l.features, l.SQLStore.GetDialect(), recursiveQueriesAreSupported)
+		dialect := l.SQLStore.GetDialect()
+		builder := db.NewSqlBuilder(l.Cfg, l.features, dialect, recursiveQueriesAreSupported)
 		if folderFilter.includeGeneralFolder {
-			builder.Write(selectLibraryElementDTOWithMeta)
+			builder.Write(getSelectLibraryElementDTOWithMeta(dialect))
 			builder.Write(", 'General' as folder_name ")
 			builder.Write(", '' as folder_uid ")
-			builder.Write(getFromLibraryElementDTOWithMeta(l.SQLStore.GetDialect()))
+			builder.Write(getFromLibraryElementDTOWithMeta(dialect))
 			builder.Write(` WHERE le.org_id=?  AND le.folder_id=0`, signedInUser.OrgID)
 			writeKindSQL(query, &builder)
 			writeSearchStringSQL(query, l.SQLStore, &builder)
@@ -361,10 +422,10 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 			writeTypeFilterSQL(typeFilter, &builder)
 			builder.Write(" UNION ")
 		}
-		builder.Write(selectLibraryElementDTOWithMeta)
+		builder.Write(getSelectLibraryElementDTOWithMeta(dialect))
 		builder.Write(", dashboard.title as folder_name ")
 		builder.Write(", dashboard.uid as folder_uid ")
-		builder.Write(getFromLibraryElementDTOWithMeta(l.SQLStore.GetDialect()))
+		builder.Write(getFromLibraryElementDTOWithMeta(dialect))
 		builder.Write(" INNER JOIN dashboard AS dashboard on le.folder_id = dashboard.id AND le.folder_id<>0")
 		builder.Write(` WHERE le.org_id=?`, signedInUser.OrgID)
 		writeKindSQL(query, &builder)
@@ -377,13 +438,25 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		if signedInUser.OrgRole != org.RoleAdmin {
 			builder.WriteDashboardPermissionFilter(signedInUser, dashboards.PERMISSION_VIEW, "")
 		}
-		if query.SortDirection == search.SortAlphaDesc.Name {
-			builder.Write(" ORDER BY 1 DESC")
+		// YDB: after UNION we need an explicit column alias; getSelectLibraryElementDTOWithMeta uses "le.name AS name" for YDB so ORDER BY name is valid.
+		if dialect.DriverName() == migrator.YDB {
+			if query.SortDirection == search.SortAlphaDesc.Name {
+				builder.Write(" ORDER BY name DESC")
+			} else {
+				builder.Write(" ORDER BY name ASC")
+			}
 		} else {
-			builder.Write(" ORDER BY 1 ASC")
+			if query.SortDirection == search.SortAlphaDesc.Name {
+				builder.Write(" ORDER BY 1 DESC")
+			} else {
+				builder.Write(" ORDER BY 1 ASC")
+			}
 		}
 		writePerPageSQL(query, l.SQLStore, &builder)
 		if err := session.SQL(builder.GetSQLString(), builder.GetParams()...).Find(&elements); err != nil {
+			return err
+		}
+		if err := fillConnectedDashboardsYDB(session, dialect, elements); err != nil {
 			return err
 		}
 
@@ -424,8 +497,8 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		var libraryElements []model.LibraryElement
 		countBuilder := db.SQLBuilder{}
 		if folderFilter.includeGeneralFolder {
-			countBuilder.Write(selectLibraryElementDTOWithMeta)
-			countBuilder.Write(getFromLibraryElementDTOWithMeta(l.SQLStore.GetDialect()))
+			countBuilder.Write(getSelectLibraryElementDTOWithMeta(dialect))
+			countBuilder.Write(getFromLibraryElementDTOWithMeta(dialect))
 			countBuilder.Write(` WHERE le.org_id=? AND le.folder_id=0`, signedInUser.OrgID)
 			writeKindSQL(query, &countBuilder)
 			writeSearchStringSQL(query, l.SQLStore, &countBuilder)
@@ -433,8 +506,8 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 			writeTypeFilterSQL(typeFilter, &countBuilder)
 			countBuilder.Write(" UNION ")
 		}
-		countBuilder.Write(selectLibraryElementDTOWithMeta)
-		countBuilder.Write(getFromLibraryElementDTOWithMeta(l.SQLStore.GetDialect()))
+		countBuilder.Write(getSelectLibraryElementDTOWithMeta(dialect))
+		countBuilder.Write(getFromLibraryElementDTOWithMeta(dialect))
 		countBuilder.Write(" INNER JOIN dashboard AS dashboard on le.folder_id = dashboard.id and le.folder_id<>0")
 		countBuilder.Write(` WHERE le.org_id=?`, signedInUser.OrgID)
 		writeKindSQL(query, &countBuilder)
@@ -638,16 +711,20 @@ func (l *LibraryElementService) getConnections(c context.Context, signedInUser *
 func (l *LibraryElementService) getElementsForDashboardID(c context.Context, dashboardID int64) (map[string]model.LibraryElementDTO, error) {
 	libraryElementMap := make(map[string]model.LibraryElementDTO)
 	err := l.SQLStore.WithDbSession(c, func(session *db.Session) error {
+		dialect := l.SQLStore.GetDialect()
 		var libraryElements []model.LibraryElementWithMeta
-		sql := selectLibraryElementDTOWithMeta +
+		sql := getSelectLibraryElementDTOWithMeta(dialect) +
 			", coalesce(dashboard.title, 'General') AS folder_name" +
 			", coalesce(dashboard.uid, '') AS folder_uid" +
-			getFromLibraryElementDTOWithMeta(l.SQLStore.GetDialect()) +
+			getFromLibraryElementDTOWithMeta(dialect) +
 			" LEFT JOIN dashboard AS dashboard ON dashboard.id = le.folder_id" +
 			" INNER JOIN " + model.LibraryElementConnectionTableName + " AS lce ON lce.element_id = le.id AND lce.kind=1 AND lce.connection_id=?"
 		sess := session.SQL(sql, dashboardID)
 		err := sess.Find(&libraryElements)
 		if err != nil {
+			return err
+		}
+		if err := fillConnectedDashboardsYDB(session, dialect, libraryElements); err != nil {
 			return err
 		}
 
