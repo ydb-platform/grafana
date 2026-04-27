@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -1071,12 +1070,8 @@ func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
 
 // Prepare implements driver.Conn interface
 func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
-	log.Printf("[YDB] Prepare(%q)", query)
-
 	rewritten, inArgs := rewriteQueryInClauses(query)
-	if inArgs != nil {
-		log.Printf("[YDB] IN clause rewritten: %d params collapsed to single list", inArgs.collapsedCount())
-	}
+
 	// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin; use native ILIKE
 	if shouldUseCostBasedOptimization(rewritten) {
 		rewritten = prependYdbPragma(rewritten)
@@ -1090,14 +1085,9 @@ func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
 
 // PrepareContext implements driver.ConnPrepareContext interface
 func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	log.Printf("[YDB] PrepareContext(%q)", query)
-
 	if connCtx, ok := w.conn.(driver.ConnPrepareContext); ok {
 		rewritten, inArgs := rewriteQueryInClauses(query)
-		if inArgs != nil {
-			// Log so operator can confirm IN collapse is applied (xorm [SQL] log shows original query)
-			log.Printf("[YDB] IN clause rewritten: %d params collapsed to single list", inArgs.collapsedCount())
-		}
+
 		// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin
 		if shouldUseCostBasedOptimization(rewritten) {
 			rewritten = prependYdbPragma(rewritten)
@@ -1235,8 +1225,6 @@ func (w *rowsWrapper) Columns() []string {
 
 // convertQueryAndArgs converts time.Duration arguments to int64
 func convertQueryAndArgs(query string, args []driver.NamedValue) (string, []driver.NamedValue) {
-	log.Printf("[YDB] convertQueryAndArgs(%q, %+v)", query, args)
-
 	converted := make([]driver.NamedValue, len(args))
 	for i, arg := range args {
 		converted[i] = arg
