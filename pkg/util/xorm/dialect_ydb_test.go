@@ -138,6 +138,28 @@ func TestGetLastPartOfColumn(t *testing.T) {
 	}
 }
 
+func TestRewriteYdbLowerFunctions(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"no lower", "SELECT * FROM t WHERE id = $1", "SELECT * FROM t WHERE id = $1"},
+		{"lower login", "LOWER(`user`.login)=LOWER($1)", "Unicode::ToLower(`user`.login)=Unicode::ToLower($1)"},
+		{"lowercase", "where lower(email)=lower($1)", "where Unicode::ToLower(email)=Unicode::ToLower($1)"},
+		// Already YQL: must not add nested Unicode::ToLower inside tolower
+		{"idempotent unicode tolower", "Unicode::ToLower(x)=Unicode::ToLower($1)", "Unicode::ToLower(x)=Unicode::ToLower($1)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rewriteYdbLowerFunctions(tt.in)
+			if got != tt.want {
+				t.Errorf("rewriteYdbLowerFunctions() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRewriteILIKEToLowerLike(t *testing.T) {
 	tests := []struct {
 		name string

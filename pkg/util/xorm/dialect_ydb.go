@@ -784,6 +784,18 @@ func rewriteILIKEToLowerLike(query string) string {
 	return ydbILIKEToLowerLikeRe.ReplaceAllString(query, "LOWER($1) LIKE LOWER($2)")
 }
 
+// ydbSQLLowerCallRe matches SQL LOWER(…); \b ensures we do not match the "lower" inside
+// "tolower" in Unicode::ToLower(…) when queries are re-prepared.
+var ydbSQLLowerCallRe = regexp.MustCompile(`(?i)\blower\s*\(`)
+
+// rewriteYdbLowerFunctions maps SQL LOWER() to YQL Unicode::ToLower (YDB has no LOWER builtin).
+func rewriteYdbLowerFunctions(query string) string {
+	if !ydbSQLLowerCallRe.MatchString(query) {
+		return query
+	}
+	return ydbSQLLowerCallRe.ReplaceAllString(query, "Unicode::ToLower(")
+}
+
 // migration todo:
 //
 // ALTER TABLE `cache_data` ADD COLUMN created_at_new Int64;
@@ -1071,6 +1083,7 @@ func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
 // Prepare implements driver.Conn interface
 func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
 	rewritten, inArgs := rewriteQueryInClauses(query)
+	rewritten = rewriteYdbLowerFunctions(rewritten)
 
 	// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin; use native ILIKE
 	if shouldUseCostBasedOptimization(rewritten) {
@@ -1087,6 +1100,7 @@ func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
 func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	if connCtx, ok := w.conn.(driver.ConnPrepareContext); ok {
 		rewritten, inArgs := rewriteQueryInClauses(query)
+		rewritten = rewriteYdbLowerFunctions(rewritten)
 
 		// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin
 		if shouldUseCostBasedOptimization(rewritten) {

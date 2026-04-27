@@ -390,6 +390,21 @@ func (ss *sqlStore) GetSignedInUser(ctx context.Context, query *user.GetSignedIn
 			orgId = strconv.FormatInt(query.OrgID, 10)
 		}
 
+		userTable := ss.dialect.Quote("user")
+		// YDB: correlated scalar subqueries cannot reference outer table alias (u) — "Member not found: u".
+		// Count memberships via a grouped derived table and join instead.
+		orgCountExpr := `(SELECT COUNT(*) FROM org_user where org_user.user_id = u.id) as org_count`
+		extraYdbJoins := ""
+		if ss.dialect.DriverName() == migrator.YDB {
+			orgCountExpr = `COALESCE(org_counts.cnt, 0)            as org_count`
+			extraYdbJoins = `
+		LEFT OUTER JOIN (
+			SELECT user_id, COUNT(*) AS cnt
+			FROM org_user
+			GROUP BY user_id
+		) AS org_counts ON org_counts.user_id = u.id`
+		}
+
 		var rawSQL = `SELECT
 		u.id                  as user_id,
 		u.is_admin            as is_grafana_admin,
@@ -399,12 +414,12 @@ func (ss *sqlStore) GetSignedInUser(ctx context.Context, query *user.GetSignedIn
 		u.is_disabled         as is_disabled,
 		u.help_flags1         as help_flags1,
 		u.last_seen_at        as last_seen_at,
-		(SELECT COUNT(*) FROM org_user where org_user.user_id = u.id) as org_count,
+		` + orgCountExpr + `,
 		org.name              as org_name,
 		org_user.role         as org_role,
 		org.id                as org_id,
 		u.is_service_account  as is_service_account
-		FROM ` + ss.dialect.Quote("user") + ` as u
+		FROM ` + userTable + ` as u` + extraYdbJoins + `
 		LEFT OUTER JOIN org_user on org_user.user_id = u.id
 		LEFT OUTER JOIN org on org.id = org_user.org_id `
 
