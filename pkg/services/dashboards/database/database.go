@@ -1034,7 +1034,7 @@ func (d *dashboardStore) GetDashboardTags(ctx context.Context, query *dashboards
 	err := d.store.WithDbSession(ctx, func(dbSession *db.Session) error {
 		sql := `SELECT
 					  COUNT(*) as count,
-						term
+dashboard_tag.term
 					FROM dashboard
 					INNER JOIN dashboard_tag on dashboard_tag.dashboard_id = dashboard.id
 					WHERE dashboard.org_id=?

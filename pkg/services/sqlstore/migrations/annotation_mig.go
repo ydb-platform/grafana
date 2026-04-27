@@ -1,6 +1,8 @@
 package migrations
 
 import (
+	"fmt"
+
 	"xorm.io/xorm"
 
 	. "github.com/grafana/grafana/pkg/services/sqlstore/migrator"
@@ -72,7 +74,7 @@ func addAnnotationMig(mg *Migrator) {
 	annotationTagTable := Table{
 		Name: "annotation_tag",
 		Columns: []*Column{
-			{Name: "annotation_id", Type: DB_BigInt, Nullable: false},
+			{Name: "annotation_id", Type: DB_BigInt, Nullable: false, IsPrimaryKey: true},
 			{Name: "tag_id", Type: DB_BigInt, Nullable: false},
 		},
 		Indices: []*Index{
@@ -116,7 +118,7 @@ func addAnnotationMig(mg *Migrator) {
 	//
 	// clear alert text
 	//
-	updateTextFieldSQL := "UPDATE annotation SET TEXT = '' WHERE alert_id > 0"
+	updateTextFieldSQL := "UPDATE annotation SET text = '' WHERE alert_id > 0"
 	mg.AddMigration("Update alert annotations and set TEXT to empty", NewRawSQLMigration(updateTextFieldSQL))
 
 	//
@@ -216,4 +218,43 @@ func (m *AddMakeRegionSingleRowMigration) Exec(sess *xorm.Session, mg *Migrator)
 
 	_, err = sess.Exec("DELETE FROM annotation WHERE region_id > 0 AND id <> region_id")
 	return err
+}
+
+type SetDashboardUIDMigration struct {
+	MigrationBase
+}
+
+func (m *SetDashboardUIDMigration) SQL(dialect Dialect) string {
+	return "code migration"
+}
+
+func (m *SetDashboardUIDMigration) Exec(sess *xorm.Session, mg *Migrator) error {
+	return RunDashboardUIDMigrations(sess, mg.Dialect.DriverName())
+}
+
+func RunDashboardUIDMigrations(sess *xorm.Session, driverName string) error {
+	sql := `UPDATE annotation
+	SET dashboard_uid = (SELECT uid FROM dashboard WHERE dashboard.id = annotation.dashboard_id)
+	WHERE dashboard_uid IS NULL AND dashboard_id != 0 AND EXISTS (SELECT 1 FROM dashboard WHERE dashboard.id = annotation.dashboard_id);`
+	switch driverName {
+	case Postgres:
+		sql = `UPDATE annotation
+		SET dashboard_uid = dashboard.uid
+		FROM dashboard
+		WHERE annotation.dashboard_id = dashboard.id
+		 AND annotation.dashboard_id != 0
+		 AND annotation.dashboard_uid IS NULL;`
+	case MySQL:
+		sql = `UPDATE annotation
+		LEFT JOIN dashboard ON annotation.dashboard_id = dashboard.id
+		SET annotation.dashboard_uid = dashboard.uid
+		WHERE annotation.dashboard_uid IS NULL and annotation.dashboard_id != 0;`
+	case YDB:
+		return nil
+	}
+	if _, err := sess.Exec(sql); err != nil {
+		return fmt.Errorf("failed to set dashboard_uid for annotation: %w", err)
+	}
+
+	return nil
 }

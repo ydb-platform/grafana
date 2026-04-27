@@ -47,8 +47,7 @@ func (b *Builder) buildSelect() {
 	var recQuery string
 	var recQueryParams []interface{}
 
-	b.sql.WriteString(
-		`SELECT
+	selectList := `SELECT
 			dashboard.id,
 			dashboard.uid,
 			dashboard.title,
@@ -58,8 +57,12 @@ func (b *Builder) buildSelect() {
 			dashboard.folder_id,
 			folder.uid AS folder_uid,
 			folder.slug AS folder_slug,
-			folder.title AS folder_title `)
-
+			folder.title AS folder_title
+		`
+	if b.Dialect.DriverName() == migrator.YDB {
+		selectList += `, dashboard.title AS title `
+	}
+	b.sql.WriteString(selectList)
 	for _, f := range b.Filters {
 		if f, ok := f.(FilterSelect); ok {
 			b.sql.WriteString(fmt.Sprintf(", %s", f.Select()))
@@ -129,16 +132,30 @@ func (b *Builder) applyFilters() (ordering string) {
 		}
 	}
 
-	b.sql.WriteString("SELECT dashboard.id FROM dashboard")
+	forceIndex := ""
+	if b.Dialect.DriverName() == migrator.MySQL {
+		forceIndex = " FORCE INDEX (IDX_dashboard_title) "
+	}
+
+	// YDB: subquery ORDER BY runs over the subquery result; we always add default title sort below if empty, so include title
+	if len(orders) < 1 {
+		orders = append(orders, TitleSorter{}.OrderBy())
+	}
+	subquerySelect := "SELECT dashboard.id AS id FROM dashboard"
+	if b.Dialect.DriverName() == migrator.YDB {
+		for _, o := range orders {
+			if strings.Contains(o, "dashboard.title") {
+				subquerySelect = "SELECT dashboard.id AS id, dashboard.title AS title FROM dashboard"
+				break
+			}
+		}
+	}
+	b.sql.WriteString(fmt.Sprintf("%s %s", subquerySelect, forceIndex))
 	b.sql.WriteString(strings.Join(joins, ""))
 
 	if len(wheres) > 0 {
 		b.sql.WriteString(fmt.Sprintf(" WHERE %s", strings.Join(wheres, " AND ")))
 		b.params = append(b.params, whereParams...)
-	}
-
-	if len(orders) < 1 {
-		orders = append(orders, TitleSorter{}.OrderBy())
 	}
 
 	if len(groups) > 0 {
@@ -170,7 +187,12 @@ func (b *Builder) applyFilters() (ordering string) {
 	orderBy := fmt.Sprintf(" ORDER BY %s", strings.Join(orderByCols, ", "))
 	b.sql.WriteString(orderBy)
 
+	// YDB: outer query has both dashboard.title and alias "title"; ORDER BY title is ambiguous ("column name: title conflicted")
+	orderByOuter := orderBy
+	if b.Dialect.DriverName() == migrator.YDB {
+		orderByOuter = strings.ReplaceAll(orderByOuter, " title ", " dashboard.title ")
+	}
 	order := strings.Join(orderJoins, "")
-	order += orderBy
+	order += orderByOuter
 	return order
 }
