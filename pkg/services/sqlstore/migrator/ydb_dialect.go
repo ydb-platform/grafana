@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
+	"github.com/ydb-platform/ydb-go-genproto/protos/Ydb"
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/retry"
 
@@ -292,11 +293,11 @@ func (d *YDBDialect) isUndefinedTable(err error) bool {
 }
 
 func (d *YDBDialect) IsUniqueConstraintViolation(err error) bool {
-	return d.isThisError(err, "23505")
+	return ydb.IsOperationError(err, Ydb.StatusIds_PRECONDITION_FAILED)
 }
 
 func (d *YDBDialect) IsDeadlock(err error) bool {
-	return d.isThisError(err, "40P01")
+	return false // No deadlock
 }
 
 func (d *YDBDialect) CreateIndexSQL(tableName string, index *Index) string {
