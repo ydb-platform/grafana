@@ -465,10 +465,12 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
 
-require github.com/ydb-platform/ydb-go-sdk/v3 v3.128.3
+require (
+	github.com/ydb-platform/ydb-go-genproto v0.0.0-20260311095541-ebbf792c1180
+	github.com/ydb-platform/ydb-go-sdk/v3 v3.135.6
+)
 
 require (
-	github.com/ydb-platform/ydb-go-genproto v0.0.0-20251125145508-6d7ef87db5cb // indirect
 	github.com/ydb-platform/ydb-go-yc-metadata v0.6.1 // indirect
 	golang.org/x/tools/godoc v0.1.0-deprecated // indirect
 )
