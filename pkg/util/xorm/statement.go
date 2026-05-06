@@ -228,6 +228,19 @@ func (statement *Statement) setRefBean(bean interface{}) error {
 	return nil
 }
 
+// conversionToParamValue maps core.Conversion ToDB output to a driver argument.
+// It mirrors session_convert.value2Interface: blob columns keep []byte (YDB String);
+// text/json columns use string (YDB Utf8).
+func conversionToParamValue(col *core.Column, data []byte) interface{} {
+	if data == nil {
+		return nil
+	}
+	if col.SQLType.IsBlob() {
+		return data
+	}
+	return string(data)
+}
+
 // Auto generating update columnes and values according a struct
 func (statement *Statement) buildUpdates(bean interface{},
 	includeVersion, includeUpdated, includeNil,
@@ -320,7 +333,7 @@ func (statement *Statement) buildUpdates(bean interface{},
 				if err != nil {
 					engine.logger.Error(err)
 				} else {
-					val = data
+					val = conversionToParamValue(col, data)
 				}
 				goto APPEND
 			}
@@ -331,7 +344,7 @@ func (statement *Statement) buildUpdates(bean interface{},
 			if err != nil {
 				engine.logger.Error(err)
 			} else {
-				val = data
+				val = conversionToParamValue(col, data)
 			}
 			goto APPEND
 		}

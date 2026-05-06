@@ -76,7 +76,7 @@ func (d *YDBDialect) BooleanStr(value bool) string {
 }
 
 func (d *YDBDialect) BatchSize() int {
-	return 1000
+	return 100
 }
 
 func (d *YDBDialect) SQLType(c *Column) string {

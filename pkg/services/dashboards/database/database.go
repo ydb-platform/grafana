@@ -1032,14 +1032,15 @@ func (d *dashboardStore) FindDashboards(ctx context.Context, query *dashboards.F
 func (d *dashboardStore) GetDashboardTags(ctx context.Context, query *dashboards.GetDashboardTagsQuery) ([]*dashboards.DashboardTagCloudItem, error) {
 	queryResult := make([]*dashboards.DashboardTagCloudItem, 0)
 	err := d.store.WithDbSession(ctx, func(dbSession *db.Session) error {
+		// YQL requires correlation names in GROUP BY / ORDER BY (bare "term" fails).
 		sql := `SELECT
 					  COUNT(*) as count,
 dashboard_tag.term
 					FROM dashboard
 					INNER JOIN dashboard_tag on dashboard_tag.dashboard_id = dashboard.id
 					WHERE dashboard.org_id=?
-					GROUP BY term
-					ORDER BY term`
+					GROUP BY dashboard_tag.term
+					ORDER BY dashboard_tag.term`
 
 		sess := dbSession.SQL(sql, query.OrgID)
 		err := sess.Find(&queryResult)
@@ -1085,7 +1086,7 @@ func (d *dashboardStore) DeleteDashboardsInFolder(
 			return err
 		}
 
-		_, err = sess.Where("folder_id = ? AND org_id = ? AND is_folder = ?", dashboard.ID, dashboard.OrgID, false).Delete(&dashboards.Dashboard{})
+		_, err = sess.Where("folder_id = ? AND org_id = ? AND is_folder = ?", dashboard.ID, dashboard.OrgID, d.store.GetDialect().BooleanStr(false)).Delete(&dashboards.Dashboard{})
 		return err
 	})
 }

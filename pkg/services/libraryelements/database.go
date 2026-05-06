@@ -301,12 +301,18 @@ func getLibraryElements(c context.Context, store db.DB, cfg *setting.Cfg, signed
 		builder.Write(getFromLibraryElementDTOWithMeta(dialect))
 		writeParamSelectorSQL(&builder, append(params, Pair{"folder_id", cmd.FolderID})...)
 		builder.Write(" UNION ")
-		builder.Write(selectLibraryElementDTOWithMeta)
+		// YDB: no correlated COUNT subquery on le (UNION branch loses outer alias → "Member not found: le"); use 0 + fillConnectedDashboardsYDB.
+		if dialect.DriverName() == migrator.YDB {
+			builder.Write(getSelectLibraryElementDTOWithMeta(dialect))
+		} else {
+			builder.Write(selectLibraryElementDTOWithMeta)
+		}
 		builder.Write(", dashboard.title as folder_name ")
 		builder.Write(", dashboard.uid as folder_uid ")
 		builder.Write(getFromLibraryElementDTOWithMeta(store.GetDialect()))
-		builder.Write(" INNER JOIN dashboard AS dashboard on le.folder_id = dashboard.id AND le.folder_id <> 0")
-		writeParamSelectorSQL(&builder, params...)
+		writeLibraryElementFolderDashboardJoin(&builder, dialect)
+		writeLibraryElementRBACParentFolderJoin(&builder)
+		writeParamSelectorSQLAfterFolderDashboardJoin(&builder, dialect, params...)
 		builder.WriteDashboardPermissionFilter(signedInUser, dashboards.PERMISSION_VIEW, "")
 		builder.Write(` OR dashboard.id=0`)
 		if err := session.SQL(builder.GetSQLString(), builder.GetParams()...).Find(&libraryElements); err != nil {
@@ -426,8 +432,15 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		builder.Write(", dashboard.title as folder_name ")
 		builder.Write(", dashboard.uid as folder_uid ")
 		builder.Write(getFromLibraryElementDTOWithMeta(dialect))
-		builder.Write(" INNER JOIN dashboard AS dashboard on le.folder_id = dashboard.id AND le.folder_id<>0")
-		builder.Write(` WHERE le.org_id=?`, signedInUser.OrgID)
+		writeLibraryElementFolderDashboardJoin(&builder, dialect)
+		if signedInUser.OrgRole != org.RoleAdmin {
+			writeLibraryElementRBACParentFolderJoin(&builder)
+		}
+		if dialect.DriverName() == migrator.YDB {
+			builder.Write(` WHERE le.org_id=? AND le.folder_id <> 0`, signedInUser.OrgID)
+		} else {
+			builder.Write(` WHERE le.org_id=?`, signedInUser.OrgID)
+		}
 		writeKindSQL(query, &builder)
 		writeSearchStringSQL(query, l.SQLStore, &builder)
 		writeExcludeSQL(query, &builder)
@@ -508,8 +521,12 @@ func (l *LibraryElementService) getAllLibraryElements(c context.Context, signedI
 		}
 		countBuilder.Write(getSelectLibraryElementDTOWithMeta(dialect))
 		countBuilder.Write(getFromLibraryElementDTOWithMeta(dialect))
-		countBuilder.Write(" INNER JOIN dashboard AS dashboard on le.folder_id = dashboard.id and le.folder_id<>0")
-		countBuilder.Write(` WHERE le.org_id=?`, signedInUser.OrgID)
+		writeLibraryElementFolderDashboardJoin(&countBuilder, dialect)
+		if dialect.DriverName() == migrator.YDB {
+			countBuilder.Write(` WHERE le.org_id=? AND le.folder_id <> 0`, signedInUser.OrgID)
+		} else {
+			countBuilder.Write(` WHERE le.org_id=?`, signedInUser.OrgID)
+		}
 		writeKindSQL(query, &countBuilder)
 		writeSearchStringSQL(query, l.SQLStore, &countBuilder)
 		writeExcludeSQL(query, &countBuilder)
@@ -677,6 +694,9 @@ func (l *LibraryElementService) getConnections(c context.Context, signedInUser *
 		builder.Write(" FROM " + model.LibraryElementConnectionTableName + " AS lec")
 		builder.Write(" LEFT JOIN " + l.SQLStore.GetDialect().Quote("user") + " AS u1 ON lec.created_by = u1.id")
 		builder.Write(" INNER JOIN dashboard AS dashboard on lec.connection_id = dashboard.id")
+		if signedInUser.OrgRole != org.RoleAdmin {
+			writeLibraryElementRBACParentFolderJoin(&builder)
+		}
 		builder.Write(` WHERE lec.element_id=?`, element.ID)
 		if signedInUser.OrgRole != org.RoleAdmin {
 			builder.WriteDashboardPermissionFilter(signedInUser, dashboards.PERMISSION_VIEW, "")

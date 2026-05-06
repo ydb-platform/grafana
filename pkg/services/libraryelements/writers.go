@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/services/libraryelements/model"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
 type Pair struct {
@@ -30,6 +31,39 @@ func writeParamSelectorSQL(builder *db.SQLBuilder, params ...Pair) {
 		conditionString, paramValues := selectLibraryElementByParam(params)
 		builder.Write(conditionString, paramValues...)
 	}
+}
+
+// writeLibraryElementFolderDashboardJoin joins library_element to folder dashboard rows.
+// YQL allows only equality predicates in JOIN ON; non-zero folder_id is applied in WHERE instead.
+func writeLibraryElementFolderDashboardJoin(builder *db.SQLBuilder, dialect migrator.Dialect) {
+	if dialect.DriverName() == migrator.YDB {
+		builder.Write(" INNER JOIN dashboard AS dashboard ON le.folder_id = dashboard.id")
+	} else {
+		builder.Write(" INNER JOIN dashboard AS dashboard on le.folder_id = dashboard.id AND le.folder_id <> 0")
+	}
+}
+
+// writeLibraryElementRBACParentFolderJoin adds the parent-folder alias (`folder`) required by
+// accessControlDashboardPermissionFilterNoFolderSubquery (folder.uid in WHERE).
+// permissions.LeftJoin() returns the same ON clause; db.SQLBuilder only appends it when recQry is non-empty,
+// so we must emit the JOIN here before WHERE.
+func writeLibraryElementRBACParentFolderJoin(builder *db.SQLBuilder) {
+	builder.Write(` LEFT OUTER JOIN dashboard AS folder ON dashboard.org_id = folder.org_id AND dashboard.folder_id = folder.id`)
+}
+
+// writeParamSelectorSQLAfterFolderDashboardJoin appends WHERE after writeLibraryElementFolderDashboardJoin.
+func writeParamSelectorSQLAfterFolderDashboardJoin(builder *db.SQLBuilder, dialect migrator.Dialect, params ...Pair) {
+	if len(params) == 0 {
+		if dialect.DriverName() == migrator.YDB {
+			builder.Write(" WHERE le.folder_id <> 0")
+		}
+		return
+	}
+	conditionString, paramValues := selectLibraryElementByParam(params)
+	if dialect.DriverName() == migrator.YDB {
+		conditionString = strings.Replace(conditionString, "WHERE ", "WHERE le.folder_id <> 0 AND ", 1)
+	}
+	builder.Write(conditionString, paramValues...)
 }
 
 func writePerPageSQL(query model.SearchLibraryElementsQuery, sqlStore db.DB, builder *db.SQLBuilder) {

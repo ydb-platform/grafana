@@ -2,7 +2,6 @@ package queryhistory
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/services/user"
@@ -288,7 +287,8 @@ func (s QueryHistoryService) deleteStaleQueries(ctx context.Context, olderThan i
 				) AS q
 			)`
 
-		res, err := session.Exec(sql, strconv.FormatInt(olderThan, 10))
+		// YDB: bind numeric columns with numeric args (string becomes Utf8 and breaks <= on created_at).
+		res, err := session.Exec(sql, olderThan)
 		if err != nil {
 			return err
 		}
@@ -357,7 +357,7 @@ func (s QueryHistoryService) enforceQueryHistoryRowLimit(ctx context.Context, li
 				sqlLimit = 10000
 			}
 
-			res, err := session.Exec(sql, strconv.FormatInt(sqlLimit, 10))
+			res, err := session.Exec(sql, sqlLimit)
 			if err != nil {
 				return err
 			}

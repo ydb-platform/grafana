@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/grafana/pkg/infra/db"
 	"github.com/grafana/grafana/pkg/services/ngalert/models"
+	"github.com/grafana/grafana/pkg/services/sqlstore/migrator"
 )
 
 var (
@@ -143,12 +144,38 @@ func (st *DBstore) UpdateAlertmanagerConfiguration(ctx context.Context, cmd *mod
 func (st *DBstore) MarkConfigurationAsApplied(ctx context.Context, cmd *models.MarkConfigurationAsAppliedCmd) error {
 	return st.SQLStore.WithTransactionalDbSession(ctx, func(sess *db.Session) error {
 		update := map[string]interface{}{"last_applied": time.Now().UTC().Unix()}
-		rowsAffected, err := sess.Table("alert_configuration_history").
-			Desc("id").
-			Limit(1).
-			Where("org_id = ? AND configuration_hash = ?", cmd.OrgID, cmd.ConfigurationHash).
-			Cols("last_applied").
-			Update(&update)
+
+		var rowsAffected int64
+		var err error
+
+		if st.SQLStore.GetDialect().DriverName() == migrator.YDB {
+			// YQL rejects UPDATE ... ORDER BY ... LIMIT (used by xorm for "update newest matching row").
+			// Use Get(&id) with Cols("id"): a struct scan can leave id=0 on YDB (column name mapping), so UPDATE would match no row.
+			var rowID int64
+			ok, errGet := sess.Table("alert_configuration_history").
+				Cols("id").
+				Where("org_id = ? AND configuration_hash = ?", cmd.OrgID, cmd.ConfigurationHash).
+				Desc("id").Limit(1).
+				Get(&rowID)
+			if errGet != nil {
+				return errGet
+			}
+			if !ok {
+				st.Logger.Warn("Unexpected number of rows updating alert configuration history", "rows", 0, "org", cmd.OrgID, "hash", cmd.ConfigurationHash)
+				return nil
+			}
+			rowsAffected, err = sess.Table("alert_configuration_history").
+				ID(rowID).
+				Cols("last_applied").
+				Update(&update)
+		} else {
+			rowsAffected, err = sess.Table("alert_configuration_history").
+				Desc("id").
+				Limit(1).
+				Where("org_id = ? AND configuration_hash = ?", cmd.OrgID, cmd.ConfigurationHash).
+				Cols("last_applied").
+				Update(&update)
+		}
 
 		if err != nil {
 			return err

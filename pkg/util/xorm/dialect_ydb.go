@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -34,6 +35,19 @@ func init() {
 			opts = append(opts,
 				ydb.WithCredentials(yc.NewInstanceServiceAccount()),
 				yc.WithInternalCA(),
+			)
+		}
+
+		if tokenFile := uri.Query().Get("token_file"); tokenFile != "" {
+			tokenBytes, err := os.ReadFile(tokenFile)
+			if err != nil {
+				return nil, fmt.Errorf("reading token file: %w", err)
+			}
+
+			token := strings.TrimSpace(string(tokenBytes))
+
+			opts = append(opts,
+				ydb.WithAccessTokenCredentials(token),
 			)
 		}
 
@@ -419,6 +433,9 @@ type inArgSegment struct {
 
 const inClauseCollapseThreshold = 50 // collapse IN (?,...,?) into IN ? (single list param) when param count >= this
 
+// maxInt32ConversionAttempts caps local retries after mutating args for YDB Int64→Int32 type errors (one field per iteration).
+const maxInt32ConversionAttempts = 8
+
 func isSpace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
@@ -707,29 +724,6 @@ func (m *inArgMap) applyNamed(args []driver.NamedValue) ([]driver.NamedValue, er
 	return out, nil
 }
 
-func (m *inArgMap) applyValues(args []driver.Value) ([]driver.Value, error) {
-	out := make([]driver.Value, 0, len(m.segments))
-	for _, seg := range m.segments {
-		if seg.listCount > 0 {
-			list := make([]interface{}, 0, seg.listCount)
-			end := seg.listStart + seg.listCount
-			if end > len(args) {
-				return nil, fmt.Errorf("IN clause arg map: need args[%d:%d], have %d", seg.listStart, end, len(args))
-			}
-			for j := seg.listStart; j < end; j++ {
-				list = append(list, args[j])
-			}
-			out = append(out, list)
-		} else {
-			if seg.singleIdx >= len(args) {
-				return nil, fmt.Errorf("IN clause arg map: need args[%d], have %d", seg.singleIdx, len(args))
-			}
-			out = append(out, args[seg.singleIdx])
-		}
-	}
-	return out, nil
-}
-
 type ydbStmtWrapper struct {
 	stmt   driver.Stmt
 	query  string
@@ -742,25 +736,10 @@ const ydbCostBasedOptimizationPragma = `PRAGMA ydb.CostBasedOptimization = "on";
 // ydb.CostBasedOptimization (dashboard/folder list with permission subqueries). Returns false for
 // simple lookups where the pragma often produces worse plans.
 func shouldUseCostBasedOptimization(query string) bool {
-	q := strings.ToUpper(query)
-	hasPermission := strings.Contains(q, "PERMISSION")
-	hasDashboardOrFolder := strings.Contains(q, "DASHBOARD") || strings.Contains(q, "FOLDER")
-	hasOrderOrLimit := strings.Contains(q, "ORDER BY") || strings.Contains(q, "LIMIT")
-	// Heavy pattern: permission + dashboard/folder + ordering/limit (dashboard search, folder list)
-	if hasPermission && hasDashboardOrFolder && hasOrderOrLimit {
-		return true
-	}
-	// Multiple nested IN (SELECT ...) — complex permission/folder chain
-	inSelectCount := 0
-	for i := 0; i < len(q)-10; i++ {
-		if strings.HasPrefix(q[i:], "IN (SELECT") {
-			inSelectCount++
-			if inSelectCount >= 2 {
-				return true
-			}
-		}
-	}
-	return false
+	overLibraryElements := strings.Contains(query, "library_element")
+	overDashboards := strings.Contains(query, "dashboard")
+
+	return !overLibraryElements && !overDashboards
 }
 
 func prependYdbPragma(query string) string {
@@ -794,6 +773,19 @@ func rewriteYdbLowerFunctions(query string) string {
 		return query
 	}
 	return ydbSQLLowerCallRe.ReplaceAllString(query, "Unicode::ToLower(")
+}
+
+// rewriteYdbSubstrToSubstring maps PostgreSQL-style substr(s, n) to YQL Unicode::Substring(s, n-1).
+// YQL has no substr(); permission.scope is Utf8 — Substring() expects String, so use Unicode::Substring.
+// Offsets are 0-based (PostgreSQL substr positions are 1-based).
+func rewriteYdbSubstrToSubstring(query string) string {
+	if !strings.Contains(query, "substr(") {
+		return query
+	}
+	// 1-based PostgreSQL positions -> 0-based YQL
+	query = strings.ReplaceAll(query, "substr(scope, 16)", "Unicode::Substring(scope, 15)")
+	query = strings.ReplaceAll(query, "substr(scope, 13)", "Unicode::Substring(scope, 12)")
+	return query
 }
 
 // migration todo:
@@ -1062,10 +1054,7 @@ func (w *ydbConnectorWrapper) Driver() driver.Driver {
 
 // CheckNamedValue implements driver.NamedValueChecker interface
 func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
-	// Convert time.Duration to int64
-	if duration, ok := nv.Value.(time.Duration); ok {
-		nv.Value = int64(duration)
-	}
+	nv.Value = normalizeYDBArgValue(nv.Value)
 
 	rv := reflect.ValueOf(nv.Value)
 	if rv.Kind() == reflect.Int {
@@ -1084,6 +1073,7 @@ func (w *ydbConnWrapper) CheckNamedValue(nv *driver.NamedValue) error {
 func (w *ydbConnWrapper) Prepare(query string) (driver.Stmt, error) {
 	rewritten, inArgs := rewriteQueryInClauses(query)
 	rewritten = rewriteYdbLowerFunctions(rewritten)
+	rewritten = rewriteYdbSubstrToSubstring(rewritten)
 
 	// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin; use native ILIKE
 	if shouldUseCostBasedOptimization(rewritten) {
@@ -1101,6 +1091,7 @@ func (w *ydbConnWrapper) PrepareContext(ctx context.Context, query string) (driv
 	if connCtx, ok := w.conn.(driver.ConnPrepareContext); ok {
 		rewritten, inArgs := rewriteQueryInClauses(query)
 		rewritten = rewriteYdbLowerFunctions(rewritten)
+		rewritten = rewriteYdbSubstrToSubstring(rewritten)
 
 		// Do not rewrite ILIKE to LOWER(...) LIKE: YDB has no LOWER() builtin
 		if shouldUseCostBasedOptimization(rewritten) {
@@ -1237,14 +1228,33 @@ func (w *rowsWrapper) Columns() []string {
 	return columns
 }
 
-// convertQueryAndArgs converts time.Duration arguments to int64
+// normalizeYDBArgValue maps values for YDB query parameters: time.Duration to int64, and
+// dialect BooleanStr() outputs bound as parameters — Postgres/SQLite/YDB use "true"/"false"
+// or "1"/"0" (MySQL, SQLite tinyint-style) — to Go bool so BOOL placeholders bind correctly.
+func normalizeYDBArgValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case time.Duration:
+		return int64(val)
+	case string:
+		switch val {
+		case "true", "1":
+			return true
+		case "false", "0":
+			return false
+		default:
+			return v
+		}
+	default:
+		return v
+	}
+}
+
+// convertQueryAndArgs converts time.Duration to int64 and BooleanStr() parameter values to bool.
 func convertQueryAndArgs(query string, args []driver.NamedValue) (string, []driver.NamedValue) {
 	converted := make([]driver.NamedValue, len(args))
 	for i, arg := range args {
 		converted[i] = arg
-		if duration, ok := arg.Value.(time.Duration); ok {
-			converted[i].Value = int64(duration)
-		}
+		converted[i].Value = normalizeYDBArgValue(arg.Value)
 	}
 	return query, converted
 }
@@ -1275,9 +1285,8 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 	var resultRows driver.Rows
 	err := retry.Retry(ctx, func(ctx context.Context) (err error) {
 		if stmtCtx, ok := w.stmt.(driver.StmtQueryContext); ok {
-			const maxInt32Retries = 20
 			currentArgs := args
-			for attempt := 0; attempt < maxInt32Retries; attempt++ {
+			for attempt := 0; attempt < maxInt32ConversionAttempts; attempt++ {
 				rows, err := stmtCtx.QueryContext(ctx, currentArgs)
 				if err == nil {
 					resultRows = &rowsWrapper{Rows: rows}
@@ -1289,11 +1298,10 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 				fieldName := extractFieldNameFromError(err)
 				currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 			}
-			return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+			return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32ConversionAttempts)
 		}
 		currentArgs := args
-		const maxInt32Retries = 20
-		for attempt := 0; attempt < maxInt32Retries; attempt++ {
+		for attempt := 0; attempt < maxInt32ConversionAttempts; attempt++ {
 			values := make([]driver.Value, len(currentArgs))
 			for i, arg := range currentArgs {
 				values[i] = arg.Value
@@ -1309,7 +1317,7 @@ func (w *ydbStmtWrapper) QueryContext(ctx context.Context, args []driver.NamedVa
 			fieldName := extractFieldNameFromError(err)
 			currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 		}
-		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32ConversionAttempts)
 	})
 	if err != nil {
 		return nil, err
@@ -1332,9 +1340,8 @@ func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedVal
 	var result driver.Result
 	err := retry.Retry(ctx, func(ctx context.Context) (err error) {
 		if stmtCtx, ok := w.stmt.(driver.StmtExecContext); ok {
-			const maxInt32Retries = 20
 			currentArgs := args
-			for attempt := 0; attempt < maxInt32Retries; attempt++ {
+			for attempt := 0; attempt < maxInt32ConversionAttempts; attempt++ {
 				res, err := stmtCtx.ExecContext(ctx, currentArgs)
 				if err == nil {
 					result = res
@@ -1346,11 +1353,10 @@ func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedVal
 				fieldName := extractFieldNameFromError(err)
 				currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 			}
-			return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+			return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32ConversionAttempts)
 		}
 		currentArgs := args
-		const maxInt32Retries = 20
-		for attempt := 0; attempt < maxInt32Retries; attempt++ {
+		for attempt := 0; attempt < maxInt32ConversionAttempts; attempt++ {
 			values := make([]driver.Value, len(currentArgs))
 			for i, arg := range currentArgs {
 				values[i] = arg.Value
@@ -1366,7 +1372,7 @@ func (w *ydbStmtWrapper) ExecContext(ctx context.Context, args []driver.NamedVal
 			fieldName := extractFieldNameFromError(err)
 			currentArgs = convertInt64ToInt32Args(currentArgs, fieldName, w.query)
 		}
-		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32Retries)
+		return fmt.Errorf("Int64 to Int32 conversion retry limit (%d) exceeded", maxInt32ConversionAttempts)
 	})
 	if err != nil {
 		return nil, err

@@ -1,6 +1,7 @@
 package xorm
 
 import (
+	"database/sql/driver"
 	"embed"
 	"strconv"
 	"strings"
@@ -160,6 +161,26 @@ func TestRewriteYdbLowerFunctions(t *testing.T) {
 	}
 }
 
+func TestRewriteYdbSubstrToSubstring(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"no substr", "SELECT * FROM permission", "SELECT * FROM permission"},
+		{"dashboard uid from scope", "SELECT substr(scope, 16) FROM permission", "SELECT Unicode::Substring(scope, 15) FROM permission"},
+		{"folder uid from scope", "SELECT substr(scope, 13) FROM permission", "SELECT Unicode::Substring(scope, 12) FROM permission"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := rewriteYdbSubstrToSubstring(tt.in)
+			if got != tt.want {
+				t.Errorf("rewriteYdbSubstrToSubstring() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRewriteILIKEToLowerLike(t *testing.T) {
 	tests := []struct {
 		name string
@@ -200,5 +221,41 @@ func TestShouldUseCostBasedOptimization(t *testing.T) {
 				t.Errorf("shouldUseCostBasedOptimization() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeYDBArgValue_BooleanStrOutputs(t *testing.T) {
+	tests := []struct {
+		in   interface{}
+		want interface{}
+	}{
+		{"true", true},
+		{"false", false},
+		{"1", true},
+		{"0", false},
+		{"other", "other"},
+	}
+	for _, tt := range tests {
+		got := normalizeYDBArgValue(tt.in)
+		if got != tt.want {
+			t.Errorf("normalizeYDBArgValue(%#v) = %#v; want %#v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestConvertQueryAndArgs_BooleanStrOutputs(t *testing.T) {
+	args := []driver.NamedValue{
+		{Ordinal: 1, Value: "true"},
+		{Ordinal: 2, Value: "false"},
+		{Ordinal: 3, Value: "1"},
+		{Ordinal: 4, Value: "0"},
+		{Ordinal: 5, Value: true},
+	}
+	_, out := convertQueryAndArgs("SELECT 1", args)
+	want := []interface{}{true, false, true, false, true}
+	for i := range want {
+		if out[i].Value != want[i] {
+			t.Fatalf("arg %d: got %#v want %#v", i, out[i].Value, want[i])
+		}
 	}
 }

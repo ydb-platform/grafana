@@ -433,7 +433,10 @@ func (st DBstore) GetUserVisibleNamespaces(ctx context.Context, orgID int64, use
 		Permission:   dashboards.PERMISSION_VIEW,
 		Sort:         model.SortOption{},
 		Filters: []interface{}{
-			searchstore.FolderWithAlertsFilter{},
+			searchstore.FolderWithAlertsFilter{
+				Dialect: st.SQLStore.GetDialect(),
+				OrgID:   orgID,
+			},
 		},
 	}
 

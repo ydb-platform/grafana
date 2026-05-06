@@ -171,10 +171,18 @@ func sqlUIDin(column string, uids []string) (string, []interface{}) {
 
 // FolderWithAlertsFilter applies a filter that makes the result contain only folders that contain alert rules
 type FolderWithAlertsFilter struct {
+	Dialect migrator.Dialect
+	// OrgID scopes the alert_rule subquery (required for YDB, which does not support correlating the
+	// standard EXISTS form with the outer "dashboard" row). 0 means use legacy SQL only.
+	OrgID int64
 }
 
 var _ FilterWhere = &FolderWithAlertsFilter{}
 
 func (f FolderWithAlertsFilter) Where() (string, []interface{}) {
+	if f.Dialect != nil && f.Dialect.DriverName() == migrator.YDB && f.OrgID != 0 {
+		// Semantics match EXISTS + outer OrgFilter: rules are per-org; namespace_uid is the folder uid.
+		return "dashboard.uid IN (SELECT namespace_uid FROM alert_rule WHERE org_id = ?)", []interface{}{f.OrgID}
+	}
 	return "EXISTS (SELECT 1 FROM alert_rule WHERE alert_rule.namespace_uid = dashboard.uid)", nil
 }
